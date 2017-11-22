@@ -34,6 +34,7 @@
 #include "task/taskloginwidget.h"
 #include "task/taskmanagementwidget.h"
 #include "zoomwidget.h"
+#include "layerdialog.h"
 
 #include <QSettings>
 
@@ -42,6 +43,7 @@ struct WidgetContainer {
         : aboutDialog(parent), annotationWidget(parent), datasetLoadWidget(parent)
         , preferencesWidget(parent), pythonInterpreterWidget(parent), pythonPropertyWidget(parent)
         , snapshotWidget(parent), taskManagementWidget(parent), zoomWidget(parent, &datasetLoadWidget)
+        , layerDialogWidget(parent)
     {
         QObject::connect(&datasetLoadWidget, &DatasetLoadWidget::datasetSwitchZoomDefaults, &zoomWidget, &ZoomWidget::zoomDefaultsClicked);
         QObject::connect(&preferencesWidget.datasetAndSegmentationTab, &DatasetAndSegmentationTab::volumeRenderToggled, &snapshotWidget, &SnapshotWidget::updateOptionVisibility);
@@ -57,6 +59,7 @@ struct WidgetContainer {
     SnapshotWidget snapshotWidget;
     TaskManagementWidget taskManagementWidget;
     ZoomWidget zoomWidget;
+    LayerDialogWidget layerDialogWidget;
 
     void applyVisibility() {
         QSettings settings;
@@ -66,6 +69,7 @@ struct WidgetContainer {
         pythonPropertyWidget.setVisible(settings.value(PYTHON_PROPERTY_WIDGET + '/' + VISIBLE, false).toBool());
         snapshotWidget.setVisible(settings.value(SNAPSHOT_WIDGET + '/' + VISIBLE, false).toBool());
         zoomWidget.setVisible(settings.value(ZOOM_WIDGET + '/' + VISIBLE, false).toBool());
+        layerDialogWidget.setVisible(settings.value(LAYER_DIALOG_WIDGET + '/' + VISIBLE, false).toBool());
     }
 
     void hideAll() {
@@ -78,6 +82,7 @@ struct WidgetContainer {
         snapshotWidget.hide();
         taskManagementWidget.hide();
         zoomWidget.hide();
+        layerDialogWidget.hide();
     }
 };
 
