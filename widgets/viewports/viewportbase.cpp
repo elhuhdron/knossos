@@ -283,6 +283,12 @@ void ViewportBase::initializeGL() {
             qDebug() << shader->log();
         }
     }
+
+    QObject::connect(&renderTimer, &QTimer::timeout, [this](){
+        this->redraw = false;
+        this->setUpdateBehavior(QOpenGLWidget::PartialUpdate);
+    });
+    this->setUpdateBehavior(QOpenGLWidget::PartialUpdate); //dont discard color & ancillary buffer between frames
 }
 
 void ViewportBase::resizeGL(int width, int height) {

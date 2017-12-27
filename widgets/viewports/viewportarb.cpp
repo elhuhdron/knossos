@@ -47,6 +47,7 @@ void ViewportArb::hideVP() {
 }
 
 void ViewportArb::paintGL() {
+    if(!redraw) return;
     if (state->gpuSlicer && state->viewer->gpuRendering) {
         state->viewer->arbCubes(*this);
     } else if (Segmentation::singleton().enabled && state->viewerState->showOnlyRawData == false) {

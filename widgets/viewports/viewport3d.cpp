@@ -118,6 +118,7 @@ Viewport3D::~Viewport3D() {
 }
 
 void Viewport3D::paintGL() {
+    if(!redraw) return;
     glClear(GL_DEPTH_BUFFER_BIT);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

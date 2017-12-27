@@ -36,6 +36,7 @@
 #include <QOpenGLTexture>
 #include <QOpenGLWidget>
 #include <QPushButton>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -222,6 +223,9 @@ public:
     ViewportType viewportType; // floatparent requires this to be initialized first to set its title
     QViewportFloatWidget floatParent;
     const static int numberViewports = 5;
+
+    QTimer renderTimer;
+    bool redraw = false;
 
     bool hasCursor{false};
     virtual void showHideButtons(bool isShow) {

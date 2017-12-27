@@ -96,6 +96,7 @@ void ViewportOrtho::initializeGL() {
 }
 
 void ViewportOrtho::paintGL() {
+    if(!redraw) return;
     glClear(GL_DEPTH_BUFFER_BIT);
     glEnable(GL_BLEND);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);

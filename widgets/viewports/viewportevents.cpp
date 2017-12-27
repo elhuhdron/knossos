@@ -159,6 +159,9 @@ void ViewportBase::handleMouseButtonMiddle(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseButtonMiddle(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers().testFlag(Qt::NoModifier) && Session::singleton().annotationMode.testFlag(AnnotationMode::NodeEditing)) {
         if (auto clickedNode = pickNode(event->x(), event->y(), 10)) {
             draggedNode = &clickedNode.get();
@@ -168,6 +171,9 @@ void ViewportOrtho::handleMouseButtonMiddle(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseButtonRight(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     const auto & annotationMode = Session::singleton().annotationMode;
     if (annotationMode.testFlag(AnnotationMode::Brush)) {
         Segmentation::singleton().brush.setInverse(event->modifiers().testFlag(Qt::ShiftModifier));
@@ -294,6 +300,9 @@ void ViewportBase::handleMouseMotionLeftHold(const QMouseEvent *event) {
 }
 
 void Viewport3D::handleMouseMotionLeftHold(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers() == Qt::NoModifier) {
         if (Segmentation::singleton().volume_render_toggle) {
             auto & seg = Segmentation::singleton();
@@ -308,6 +317,9 @@ void Viewport3D::handleMouseMotionLeftHold(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseMotionLeftHold(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers() == Qt::NoModifier) {
         state->viewer->userMove(handleMovement(event->pos()), USERMOVE_HORIZONTAL, n);
     }
@@ -315,6 +327,9 @@ void ViewportOrtho::handleMouseMotionLeftHold(const QMouseEvent *event) {
 }
 
 void Viewport3D::handleMouseMotionRightHold(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers() == Qt::NoModifier && state->skeletonState->rotationcounter == 0) {
         state->skeletonState->rotdx += xrel(event->x());
         state->skeletonState->rotdy += yrel(event->y());
@@ -324,6 +339,9 @@ void Viewport3D::handleMouseMotionRightHold(const QMouseEvent *event) {
 
 
 void ViewportOrtho::handleMouseMotionRightHold(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (Session::singleton().annotationMode.testFlag(AnnotationMode::Brush)) {
         const bool notOrigin = event->pos() != mouseDown;//don’t do redundant work
         if (notOrigin) {
@@ -334,6 +352,9 @@ void ViewportOrtho::handleMouseMotionRightHold(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseMotionMiddleHold(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (Session::singleton().annotationMode.testFlag(AnnotationMode::NodeEditing) && draggedNode != nullptr) {
         const auto moveAccurate = handleMovement(event->pos());
         arbNodeDragCache += moveAccurate;//accumulate subpixel movements
@@ -382,6 +403,9 @@ void ViewportBase::handleMouseReleaseLeft(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseReleaseLeft(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     auto & segmentation = Segmentation::singleton();
     const auto clickPos = getCoordinateFromOrthogonalClick(event->pos(), *this);
     if (!Session::singleton().outsideMovementArea(clickPos) && Session::singleton().annotationMode.testFlag(AnnotationMode::ObjectSelection)) { // in task mode the object should not be switched
@@ -412,6 +436,9 @@ void ViewportOrtho::handleMouseReleaseLeft(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseReleaseRight(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (Session::singleton().annotationMode.testFlag(AnnotationMode::Brush)) {
         if (event->pos() != mouseDown) {//merge took already place on mouse down
             segmentation_brush_work(event, *this);
@@ -421,6 +448,9 @@ void ViewportOrtho::handleMouseReleaseRight(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseReleaseMiddle(const QMouseEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     Coordinate clickedCoordinate = getCoordinateFromOrthogonalClick(event->pos(), *this);
     if (!Session::singleton().outsideMovementArea(clickedCoordinate)) {
         EmitOnCtorDtor eocd(&SignalRelay::Signal_EventModel_handleMouseReleaseMiddle, state->signalRelay, clickedCoordinate, viewportType, event);
@@ -473,6 +503,9 @@ void ViewportBase::handleWheelEvent(const QWheelEvent *event) {
 }
 
 void Viewport3D::handleWheelEvent(const QWheelEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers() == Qt::NoModifier) {
         if(Segmentation::singleton().volume_render_toggle) {
             auto& seg = Segmentation::singleton();
@@ -516,6 +549,9 @@ void Viewport3D::handleWheelEvent(const QWheelEvent *event) {
 }
 
 void ViewportOrtho::handleWheelEvent(const QWheelEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->modifiers() == Qt::CTRL) { // Orthogonal VP or outside VP
         if(event->delta() > 0) {
             zoomIn();
@@ -605,6 +641,9 @@ void ViewportBase::handleKeyPress(const QKeyEvent *event) {
 }
 
 void ViewportOrtho::handleKeyPress(const QKeyEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     //events
     //↓          #   #   #   #   #   #   #   # ↑  ↓          #  #  #…
     //^ os delay ^       ^---^ os key repeat
@@ -640,6 +679,9 @@ void ViewportOrtho::handleKeyPress(const QKeyEvent *event) {
 }
 
 void ViewportBase::handleKeyRelease(const QKeyEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if(event->key() == Qt::Key_Space) {
         state->viewerState->showOnlyRawData = false;
         state->viewer->mainWindow.forEachVPDo([] (ViewportBase & vp) {
@@ -666,6 +708,9 @@ void Viewport3D::resetWiggle() {
 }
 
 void Viewport3D::handleKeyRelease(const QKeyEvent *event) {
+    this->setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+    this->renderTimer.start(1000);
+    this->redraw = true;
     if (event->key() == Qt::Key_W && !event->isAutoRepeat()) {// real key release
         resetWiggle();
     }
