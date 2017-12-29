@@ -225,7 +225,7 @@ public:
     const static int numberViewports = 5;
 
     QTimer renderTimer;
-    bool redraw = false;
+    bool redraw = true;
 
     bool hasCursor{false};
     virtual void showHideButtons(bool isShow) {
@@ -274,6 +274,7 @@ public:
 
     void renderMesh();
 signals:
+    void renderSignal();
     void cursorPositionChanged(const Coordinate & position, const ViewportType vpType);
     void pasteCoordinateSignal();
     void updateZoomWidget();

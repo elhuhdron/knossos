@@ -152,6 +152,14 @@ ViewportBase::ViewportBase(QWidget *parent, ViewportType viewportType) :
         state->viewer->setDefaultVPSizeAndPos(false);
     });
 
+    QObject::connect(this, &ViewportBase::renderSignal, this, [](){
+        state->viewer->window->forEachVPDo([](ViewportBase& vp){
+            vp.setUpdateBehavior(QOpenGLWidget::NoPartialUpdate);
+            vp.redraw = true;
+            vp.renderTimer.start(1000);
+        });
+    });
+
     vpLayout.setMargin(0);//attach buttons to vp border
     vpLayout.addStretch(1);
     vpHeadLayout.setAlignment(Qt::AlignTop | Qt::AlignRight);
@@ -160,6 +168,8 @@ ViewportBase::ViewportBase(QWidget *parent, ViewportType viewportType) :
     vpLayout.insertLayout(0, &vpHeadLayout);
     vpLayout.addWidget(&resizeButton, 0, Qt::AlignBottom | Qt::AlignRight);
     setLayout(&vpLayout);
+
+    renderTimer.start(1000);
 }
 
 ViewportBase::~ViewportBase() {
