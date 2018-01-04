@@ -35,7 +35,7 @@ install:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq snappy || brew install snappy; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq python3 || brew install python3; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then if brew ls | grep -wq hdf5; then brew uninstall hdf5; fi fi
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install hdf5@1.8; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install --force hdf5@1.8; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force hdf5@1.8 && sudo chmod -R +rw /usr/local/opt/hdf5@1.8; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq qt5 || brew install qt5; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force qt5 && sudo chmod -R +rw /usr/local/Cellar/qt/*; fi
