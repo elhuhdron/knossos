@@ -14,6 +14,8 @@ before_install:
   - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get -qy update'
 
 install:
+  - '[ "$TRAVIS_OS_NAME" != linux ] || which cmake'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || cmake -version'
   - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get -qy install gcc-6 g++-6'
   - '[ "$TRAVIS_OS_NAME" != linux ] || export CC=/usr/bin/gcc-6'
   - '[ "$TRAVIS_OS_NAME" != linux ] || export CXX=/usr/bin/g++-6'
