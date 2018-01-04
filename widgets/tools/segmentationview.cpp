@@ -21,7 +21,7 @@
  */
 
 #include "segmentationview.h"
-
+#include <iostream>
 #include "model_helper.h"
 #include "viewer.h"
 
@@ -33,6 +33,7 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QString>
+#include <QTextStream>
 
 #include <chrono>
 
@@ -73,10 +74,12 @@ bool TouchedObjectModel::setData(const QModelIndex & index, const QVariant & val
 void TouchedObjectModel::recreate() {
     beginResetModel();
     objectCache = Segmentation::singleton().touchedObjects();
+    //std::cout << "the size of objectcache is: " << objectCache.size() << std::endl;
     endResetModel();
 }
 
 int SegmentationObjectModel::rowCount(const QModelIndex &) const {
+
     return Segmentation::singleton().objects.size();
 }
 
@@ -93,18 +96,22 @@ QVariant SegmentationObjectModel::headerData(int section, Qt::Orientation orient
 }
 
 QVariant SegmentationObjectModel::objectGet(const Segmentation::Object &obj, const QModelIndex & index, int role) const {
-    if (index.column() == 0 && (role == Qt::BackgroundRole || role == Qt::DecorationRole)) {
+    //rutuja - extra column added for the branch on-off functionality
+
+    if(index.column() == 0 && role == Qt::CheckStateRole){
+        return (obj.on_off ? Qt::Checked : Qt::Unchecked);
+    } else if (index.column() == 1 && (role == Qt::BackgroundRole || role == Qt::DecorationRole)) {
         const auto color = Segmentation::singleton().colorObjectFromIndex(obj.index);
         return QColor(std::get<0>(color), std::get<1>(color), std::get<2>(color));
-    } else if (index.column() == 2 && role == Qt::CheckStateRole) {
+    } else if (index.column() == 3 && role == Qt::CheckStateRole) {
         return (obj.immutable ? Qt::Checked : Qt::Unchecked);
     } else if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
-        case 1: return static_cast<quint64>(obj.id);
-        case 3: return obj.category;
-        case 4: return obj.comment;
-        case 5: return static_cast<quint64>(obj.subobjects.size());
-        case 6: {
+        case 2: return static_cast<quint64>(obj.id);
+        case 4: return obj.category;
+        case 5: return obj.comment;
+        case 6: return static_cast<quint64>(obj.subobjects.size());
+        case 7: {
             QString output;
             const auto elemCount = std::min(MAX_SHOWN_SUBOBJECTS, obj.subobjects.size());
             auto subobjectIt = std::begin(obj.subobjects);
@@ -130,7 +137,7 @@ QVariant SegmentationObjectModel::data(const QModelIndex & index, int role) cons
 }
 
 bool SegmentationObjectModel::objectSet(Segmentation::Object & obj, const QModelIndex & index, const QVariant & value, int role) {
-    if (index.column() == 2 && role == Qt::CheckStateRole) {
+    if (index.column() == 3 && role == Qt::CheckStateRole) {
         QMessageBox prompt;
         prompt.setWindowFlags(Qt::WindowStaysOnTopHint);
         prompt.setIcon(QMessageBox::Question);
@@ -145,11 +152,22 @@ bool SegmentationObjectModel::objectSet(Segmentation::Object & obj, const QModel
         }
     } else if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
-        case 3: Segmentation::singleton().changeCategory(obj, value.toString()); break;
-        case 4: Segmentation::singleton().changeComment(obj, value.toString()); break;
+        case 4: Segmentation::singleton().changeCategory(obj, value.toString()); break;
+        case 5: Segmentation::singleton().changeComment(obj, value.toString()); break;
         default:
             return false;
         }
+    }else if (index.column() == 0 && role == Qt::CheckStateRole){//rutuja
+
+        obj.on_off = (value == Qt::Checked ? true : false);
+        auto & seg = Segmentation::singleton();
+        seg.branch_onoff(obj);
+
+        // watkinspv - force update 2d views
+        float d = state->direction ? -1.f : 1.f; state->direction = !state->direction;
+        floatCoordinate deltaCoord{d, d, d};
+        state->viewer->userMove(deltaCoord, USERMOVE_NEUTRAL);
+
     }
     return true;
 }
@@ -165,9 +183,12 @@ bool SegmentationObjectModel::setData(const QModelIndex & index, const QVariant 
 Qt::ItemFlags SegmentationObjectModel::flags(const QModelIndex & index) const {
     Qt::ItemFlags flags = QAbstractItemModel::flags(index) | Qt::ItemNeverHasChildren;//not editable
     switch(index.column()) {
+    case 0 :
+        return flags | Qt::ItemIsUserCheckable;//rutuja
     case 2:
-        return flags | Qt::ItemIsUserCheckable;
+
     case 3:
+        return flags | Qt::ItemIsUserCheckable;
     case 4:
         return flags | Qt::ItemIsEditable;
     }
@@ -180,6 +201,7 @@ void SegmentationObjectModel::recreate() {
 }
 
 void SegmentationObjectModel::appendRowBegin() {
+
     beginInsertRows(QModelIndex(), rowCount(), rowCount());
 }
 
@@ -188,6 +210,7 @@ void SegmentationObjectModel::popRowBegin() {
 }
 
 void SegmentationObjectModel::appendRow() {
+
     endInsertRows();
 }
 
@@ -235,6 +258,11 @@ public:
         protection = prev ? protection : false;
     }
 };
+
+SegmentationView & SegmentationView::singleton() {
+    static SegmentationView segmentationView;
+    return segmentationView;
+}
 
 SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), categoryDelegate(categoryModel) {
     modeGroup.addButton(&twodBtn, 0);
@@ -289,6 +317,11 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
     objectProxyModelComment.setFilterKeyColumn(4);
     setupTable(objectsTable, objectProxyModelComment, objSortSectionIndex);
 
+    //rutuja - add active table
+    activeObjectModelCategory.setSourceModel(&activeObjectModel);
+    activeObjectModelComment.setSourceModel(&activeObjectModelCategory);
+    setupTable(activeTable, activeObjectModelComment, objSortSectionIndex );
+
     filterLayout.addWidget(&categoryFilter);
     filterLayout.addWidget(&commentFilter);
     filterLayout.addWidget(&regExCheckbox);
@@ -296,14 +329,28 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
     bottomHLayout.addWidget(&objectCountLabel);
     bottomHLayout.addWidget(&subobjectCountLabel);
     bottomHLayout.addWidget(&subobjectHoveredLabel);
+    //rutuja
+    bottomHLayout.addWidget(&objectCreateButton, 0, Qt::AlignRight);
 
     touchedTableLayout.addWidget(&touchedObjectsLabel);
     touchedTableLayout.addWidget(&touchedObjsTable);
     touchedLayoutWidget.setLayout(&touchedTableLayout);
-    splitter.setOrientation(Qt::Vertical);
+
+    //rutuja
+    activeObjectLayout.addWidget(&activeObjectLabel);
+    activeObjectLayout.addWidget(&activeTable);
+    activeObjectLayoutWidget.setLayout(&activeObjectLayout);
+
+    splitter.setOrientation(Qt::Horizontal);
     splitter.addWidget(&objectsTable);
     splitter.addWidget(&touchedLayoutWidget);
-    splitter.setStretchFactor(0, 5);
+    splitter.setStretchFactor(0,5);
+
+    //rutuja -set the active object window
+    splitter.setOrientation(Qt::Vertical);
+    splitter.addWidget(&activeTable);
+    splitter.addWidget(&activeObjectLayoutWidget);
+
     layout.addLayout(&filterLayout);
     layout.addWidget(&splitter);
     layout.addLayout(&bottomHLayout);
@@ -330,9 +377,57 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
         //resize once, constantly resizing slows down selection and scroll to considerably
         touchedObjsTable.resizeColumnToContents(index);
         objectsTable.resizeColumnToContents(index);
+        //rutuja
+        activeTable.resizeColumnToContents(index);
     }
 
     QObject::connect(&Segmentation::singleton(), &Segmentation::beforeAppendRow, &objectModel, &SegmentationObjectModel::appendRowBegin);
+    //rutuja - this needs to be called in order to append a new row for the requierd object model
+    //QObject::connect(&Segmentation::singleton(), &Segmentation::beforemerge, &activeObjectModel, &ActiveObjectModel::appendRowBegin);
+
+    //rutuja - this is a signal for a merging data of the current active object
+    QObject::connect(&Segmentation::singleton(), &Segmentation::merge,[this](){
+        activeObjectModel.addMergeRow();
+    });
+
+    //rutuja - this is a signal for a new active object
+    QObject::connect(&Segmentation::singleton(), &Segmentation::appendmerge,[this](){
+        activeObjectModel.recreate();
+        activeObjectModel.addMergeRow();
+    });
+
+    // rutuja - this is a signal to delete the current active object
+    QObject::connect(&Segmentation::singleton(), &Segmentation::deleteobject,[this](){
+
+        activeObjectModel.clear_rows();
+
+    });
+
+    QObject::connect(&Segmentation::singleton(), &Segmentation::changeactive,[this](){
+
+        activeObjectModel.clear_rows();
+
+        if( Segmentation::singleton().activeIndices.size() > 0 ) {
+            auto & obj = Segmentation::singleton().objects[Segmentation::singleton().activeIndices.back()];
+            activeObjectModel.fill_mergelist(obj);
+        }
+    });
+
+    QObject::connect(&Segmentation::singleton(), &Segmentation::deleteid,[this](){
+        auto & seg = Segmentation::singleton();
+        uint64_t id = seg.deleted_cell_id;
+        activeObjectModel.popRowBegin();
+        activeObjectModel.delete_subObjectID(id);
+        activeObjectModel.popRow();
+
+        // watkinspv - this was a bad hack
+        //if( activeObjectModel.rowCount() == 0 ) {
+        //    // delete the entire object in the top window
+        //    seg.removeObject(seg.objects.back());
+        //}
+    });
+
+
     QObject::connect(&Segmentation::singleton(), &Segmentation::beforeRemoveRow, [this](){
         objectSelectionProtection = true;
         objectModel.popRowBegin();
@@ -353,6 +448,9 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
             const auto index = Segmentation::singleton().objects.back().index;
             const auto & proxyIndex = objectProxyModelComment.mapFromSource(objectProxyModelCategory.mapFromSource(objectModel.index(index, 0)));
             objectsTable.selectionModel()->setCurrentIndex(proxyIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+           // i dont know what is this doing
+            const auto & proxy = activeObjectModelComment.mapFromSource(activeObjectModelCategory.mapFromSource(activeObjectModel.index(index,0)));
+            activeTable.selectionModel()->setCurrentIndex(proxy, QItemSelectionModel::Select | QItemSelectionModel::Rows);
         }
         objectSelectionProtection = false;
         touchedObjectModel.recreate();
@@ -375,9 +473,11 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
             const auto & proxyIndex = objectProxyModelComment.mapFromSource(objectProxyModelCategory.mapFromSource(objectModel.index(index, 0)));
             //selection lookup is way cheaper than reselection (sadly)
             const bool alreadySelected = objectsTable.selectionModel()->isSelected(proxyIndex);
-            if (Segmentation::singleton().objects[index].selected && !alreadySelected) {
+            //if (Segmentation::singleton().objects[index].selected && !alreadySelected) {
+            if (Segmentation::singleton().objects[index].active && !alreadySelected) {
                 objectsTable.selectionModel()->setCurrentIndex(proxyIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-            } else if (!Segmentation::singleton().objects[index].selected && alreadySelected) {
+            //} else if (!Segmentation::singleton().objects[index].selected && alreadySelected) {
+            } else if (!Segmentation::singleton().objects[index].active && alreadySelected) {
                 objectsTable.selectionModel()->setCurrentIndex(proxyIndex, QItemSelectionModel::Deselect | QItemSelectionModel::Rows);
             }
             touchedObjectModel.recreate();
@@ -389,6 +489,9 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
         touchedObjectModel.recreate();
         objectsTable.clearSelection();
         objectModel.recreate();
+        activeTable.clearSelection();
+        activeObjectModel.recreate();
+
         updateSelection();
         updateTouchedObjSelection();
         updateLabels();
@@ -404,15 +507,21 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
     QObject::connect(&Segmentation::singleton(), &Segmentation::renderOnlySelectedObjsChanged, &showOnlySelectedChck, &QCheckBox::setChecked);
     QObject::connect(&Segmentation::singleton(), &Segmentation::categoriesChanged, &categoryModel, &CategoryModel::recreate);
     QObject::connect(&Segmentation::singleton(), &Segmentation::hoveredSubObjectChanged, [this](const uint64_t subobject_id, const std::vector<uint64_t> & overlapObjIndices) {
-        auto text = tr("Hovered raw segmentation ID: %1").arg(subobject_id);
-        if (overlapObjIndices.empty() == false) {
-             text += " (part of: ";
-            for (const uint64_t index : overlapObjIndices) {
-                text += QString::number(Segmentation::singleton().objects[index].id) + ", ";
-            }
-            text.chop(2);
-            text += ")";
-        }
+        CoordOfCube coord;
+        int seglvl = 0;
+        if( state->mode == 1 )
+            Dataset::retrieve_prefix(subobject_id, coord, seglvl);
+
+        QString text;
+        QTextStream(&text) << "Hovered raw segmentation ID\n" << qSetFieldWidth(8)
+                           << seglvl << coord.x << coord.y << coord.z << qSetFieldWidth(12)
+                           << (state->mode == 1 ? subobject_id & Dataset::SC_ID_MSK : subobject_id) << '\n';
+
+        QString str;
+        QTextStream(&text) << "part of object" << qSetFieldWidth(5)
+                           << (overlapObjIndices.empty() ? 0 : Segmentation::singleton().objects[overlapObjIndices[0]].id);
+        text += str;
+
         subobjectHoveredLabel.setWordWrap(true);
         subobjectHoveredLabel.setText(text);
     });
@@ -439,6 +548,9 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
 
     QObject::connect(touchedObjsTable.header(), &QHeaderView::sortIndicatorChanged, threeWaySorting(touchedObjsTable, touchedObjSortSectionIndex));
     QObject::connect(objectsTable.header(), &QHeaderView::sortIndicatorChanged, threeWaySorting(objectsTable, objSortSectionIndex));
+    //rutuja
+    QObject::connect(activeTable.header(), &QHeaderView::sortIndicatorChanged, threeWaySorting(activeTable, objSortSectionIndex));
+
     QObject::connect(&objectsTable, &QTreeView::doubleClicked, [this](const QModelIndex index){
         if (index.column() == 1) {//only on id cell
             Segmentation::singleton().jumpToObject(indexFromRow(objectModel, index));
@@ -484,6 +596,39 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
     QObject::connect(objectsTable.selectionModel(), &QItemSelectionModel::selectionChanged, this, &SegmentationView::selectionChanged);
     QObject::connect(touchedObjsTable.selectionModel(), &QItemSelectionModel::selectionChanged, this, &SegmentationView::touchedObjSelectionChanged);
     QObject::connect(&showOnlySelectedChck, &QCheckBox::clicked, &Segmentation::singleton(), &Segmentation::setRenderOnlySelectedObjs);
+    //rutuja
+    QObject::connect(&objectCreateButton, &QPushButton::clicked, [](){
+        Segmentation::singleton().createandselect=true;
+        /*if(!(state->raw_found)){
+                    QMessageBox prompt;
+                    prompt.setWindowFlags(Qt::WindowStaysOnTopHint);
+                    prompt.setWindowTitle("Failure to Load Raw data");
+                    prompt.setText("Static Raw label present file missing.");
+                    QPushButton* quit = prompt.addButton("Quit", QMessageBox::YesRole);
+                    prompt.addButton("Cancel", QMessageBox::NoRole);
+                    if(prompt.clickedButton() == quit){
+                        state->mainWindow->close();
+                    }
+                    prompt.exec();
+        }
+
+        if(!(state->seg_found)){
+                    QMessageBox prompt;
+                    prompt.setWindowFlags(Qt::WindowStaysOnTopHint);
+                    prompt.setWindowTitle("Failure to Load Raw data");
+                    prompt.setText("Static Segmentation label present file missing.Quit Application");
+                    QPushButton* quit = prompt.addButton("Quit", QMessageBox::YesRole);
+                    prompt.addButton("Cancel", QMessageBox::NoRole);
+                    if(prompt.clickedButton() == quit){
+                        state->mainWindow->close();
+                    }
+                    prompt.exec();
+
+        }*/
+
+
+
+    });
 
     touchedObjectModel.recreate();
     objectModel.recreate();
@@ -493,7 +638,65 @@ SegmentationView::SegmentationView(QWidget * const parent) : QWidget(parent), ca
 
 template<typename Func>
 void commitSelection(const QItemSelection & selected, const QItemSelection & deselected, Func proxy) {
+
+    /* watkinspv = modified this again because of latency of change_colors
+    //rutuja - to disable deselecting of objects from the viewer that have already been selected.
+    //Adding the ability to selectively
+    auto & seg = Segmentation::singleton();
+
+    //clear the current active indices from list
+    Segmentation::singleton().activeIndices.clear();
+
+    if(selected.indexes().size() != 0) {
+        for (const auto & index : selected.indexes()) {
+            if (index.column() == 2) {
+                Segmentation::singleton().activeIndices.emplace_back(proxy(index.row()));
+            }
+       }
+    } else{
+      //create a copy of the selectedObjectindices to delete the
+      //the rest excep the one selected as active currently
+      size_t size = seg.selectedObjectIndices.size();
+      std::vector<uint64_t> temp(size);
+      std::vector<uint64_t>::iterator it;
+      for(uint64_t  o = 0;o < size; o++) {
+         temp.at(o) = o;
+      }
+
+      for (const auto & index : deselected.indexes()) {
+        it = std::find(temp.begin(),temp.end(),proxy(index.row()));
+        //const auto & obj = Segmentation::singleton().objects[index.row()];
+        //auto & segmentview = SegmentationView::singleton();
+        //segmentview.activeObjectModel.fill_mergelist(obj);
+        if(it != temp.end()) {
+           temp.erase(it);
+        }
+      }
+
+      if( temp.size() > 0 ) {
+          seg.activeIndices.emplace_back(temp.front());
+      }
+    }
+    seg.active_index_change = true;
+    */
+
+    auto & seg = Segmentation::singleton();
+    const auto lastActiveid = (seg.activeIndices.size() > 0 ? seg.objects.at(seg.activeIndices.back()).id : 0);
     for (const auto & index : deselected.indexes()) {
+        if (index.column() == 2) {//only evaluate id cell
+            seg.unselectActive(proxy(index.row()));
+        }
+    }
+    for (const auto & index : selected.indexes()) {
+        if (index.column() == 2) {//only evaluate id cell
+            seg.selectActive(proxy(index.row()));
+        }
+    }
+    const auto nextActiveid = (seg.activeIndices.size() > 0 ? seg.objects.at(seg.activeIndices.back()).id : 0);
+    seg.change_colors(lastActiveid, nextActiveid);
+
+    //old code - commented by rutuja
+    /*for (const auto & index : deselected.indexes()) {
         if (index.column() == 1) {//only evaluate id cell
             Segmentation::singleton().unselectObject(proxy(index.row()));
         }
@@ -502,7 +705,7 @@ void commitSelection(const QItemSelection & selected, const QItemSelection & des
         if (index.column() == 1) {//only evaluate id cell
             Segmentation::singleton().selectObject(proxy(index.row()));
         }
-    }
+    }*/
 }
 
 void commitSelection(const QItemSelection & selected, const QItemSelection & deselected) {
@@ -525,10 +728,18 @@ void SegmentationView::touchedObjSelectionChanged(const QItemSelection & selecte
 
 void SegmentationView::selectionChanged(const QItemSelection & selected, const QItemSelection & deselected) {
     if (scope s{objectSelectionProtection}) {
+
         const auto & proxySelected = objectProxyModelCategory.mapSelectionToSource(objectProxyModelComment.mapSelectionToSource(selected));
         const auto & proxyDeselected = objectProxyModelCategory.mapSelectionToSource(objectProxyModelComment.mapSelectionToSource(deselected));
         commitSelection(proxySelected, proxyDeselected);
+        //emit Segmentation::singleton().beforemerge();
+        emit Segmentation::singleton().changeactive();
         updateTouchedObjSelection();
+
+        // watkinspv - force update 2d views
+        float d = state->direction ? -1.f : 1.f; state->direction = !state->direction;
+        floatCoordinate deltaCoord{d, d, d};
+        state->viewer->userMove(deltaCoord, USERMOVE_NEUTRAL);
     }
 }
 
@@ -565,13 +776,135 @@ void SegmentationView::filter() {
 }
 
 void SegmentationView::updateLabels() {
-    objectCountLabel.setText(QString("Objects: %1").arg(Segmentation::singleton().objects.size()));
-    subobjectCountLabel.setText(QString("Subobjects: %1").arg(Segmentation::singleton().subobjects.size()));
+   objectCountLabel.setText(QString("Objects: %1").arg(Segmentation::singleton().objects.size()));
+   subobjectCountLabel.setText(QString("Subobjects: %1").arg(Segmentation::singleton().subobjects.size()));
 }
 
 uint64_t SegmentationView::indexFromRow(const SegmentationObjectModel &, const QModelIndex index) const {
-    return objectProxyModelCategory.mapSelectionToSource(objectProxyModelComment.mapSelectionToSource({index, index})).indexes().front().row();
+   return objectProxyModelCategory.mapSelectionToSource(objectProxyModelComment.mapSelectionToSource({index, index})).indexes().front().row();
 }
-uint64_t SegmentationView::indexFromRow(const TouchedObjectModel & model, const QModelIndex index) const {
-    return model.objectCache[index.row()].get().index;
+uint64_t SegmentationView::indexFromRow(const TouchedObjectModel &model, const QModelIndex index) const {
+   return model.objectCache[index.row()].get().index;
 }
+
+int ActiveObjectModel::columnCount(const QModelIndex &) const {
+   return header.size();
+}
+
+//rutuja - to dispaly the header of the active window
+QVariant ActiveObjectModel::headerData(int section, Qt::Orientation orientation, int role) const{
+
+    if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
+
+        return header[section];
+
+    } else {
+
+        return QVariant();//return invalid QVariant
+    }
+}
+
+//rutuja
+void ActiveObjectModel::appendRow() {
+   //Begins a row insertion operation.
+   //When reimplementing insertRows() in a subclass,you must call this
+   //function before inserting data into the model's underlying data store.
+   endInsertRows();
+}
+
+//rutuja
+void ActiveObjectModel::appendRowBegin() {
+   //Begins a row insertion operation.
+   //When reimplementing insertRows() in a subclass, you must call this
+   //function before inserting data into the model's underlying data store.
+   beginInsertRows(QModelIndex(), rowCount(), rowCount());
+
+}
+
+void ActiveObjectModel::popRowBegin() {
+    beginRemoveRows(QModelIndex(), rowCount()-1, rowCount()-1);
+}
+
+void ActiveObjectModel::popRow() {
+    endRemoveRows();
+}
+
+//rutuja
+int ActiveObjectModel::rowCount(const QModelIndex &) const {
+   return activeObjectCache.size();
+}
+
+//rutuja
+void ActiveObjectModel::recreate() {
+    beginResetModel();
+    activeObjectCache.clear();
+    endResetModel();
+}
+
+// watkinspv - cleaned up these update functions a bit
+void ActiveObjectModel::addMergeRow() {
+    appendRowBegin();
+    activeObjectCache.push_back(Segmentation::singleton().getCurrentmergeid());
+    appendRow();
+}
+
+//rutuja
+QVariant ActiveObjectModel::data(const QModelIndex & index, int role) const {
+
+   if (index.isValid()) {
+      //http://coliru.stacked-crooked.com/a/98276b01d551fb41
+      uint64_t obj = activeObjectCache[index.row()];
+      //auto & subobj = obj.subobjects.back().get();
+      return objectGet(obj, index, role);
+
+   }
+    return QVariant();//return invalid QVariant
+}
+
+//rutuja
+QVariant ActiveObjectModel::objectGet(uint64_t id,const QModelIndex & index, int role) const  {
+
+   if ((role == Qt::DisplayRole || role == Qt::EditRole)){
+        switch (index.column()) {
+        case 0: return QVariant((qulonglong) id & Dataset::SC_ID_MSK);
+        case 1: return Segmentation::singleton().superChunkids.at(id).x;
+        case 2: return Segmentation::singleton().superChunkids.at(id).y;
+        case 3: return Segmentation::singleton().superChunkids.at(id).z;
+        case 4: return Segmentation::singleton().seg_level_list.at(id);
+        }
+   }
+   return QVariant();//return invalid QVariant
+}
+
+void ActiveObjectModel::clear_rows() {
+    //std::cout << "clear rows" << std::endl;
+    while(activeObjectCache.size() > 0){
+        popRowBegin();
+        activeObjectCache.pop_back();
+        popRow();
+    }
+}
+
+//rutuja
+void ActiveObjectModel::fill_mergelist(const Segmentation::Object &obj){
+    //std::cout << "fill mergelist" << std::endl;
+
+    //const auto elemCount = std::min(MAX_SHOWN_SUBOBJECTS, obj.subobjects.size());
+    const auto elemCount = obj.subobjects.size();
+    auto subobjectIt = std::begin(obj.subobjects);
+    uint64_t  output;
+    for (std::size_t i = 0; i < elemCount; ++i) {
+        appendRowBegin();
+        output = subobjectIt->get().id;
+        activeObjectCache.push_back(output);
+        subobjectIt = std::next(subobjectIt);
+        appendRow();
+    }
+}
+
+void ActiveObjectModel::delete_subObjectID(uint64_t id){
+
+    activeObjectCache.erase(std::remove(activeObjectCache.begin(),activeObjectCache.end(),id),activeObjectCache.end());
+
+}
+

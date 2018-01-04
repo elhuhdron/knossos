@@ -23,10 +23,12 @@
 #include "pythoninterpreterwidget.h"
 
 #include "GuiConstants.h"
-#include "scriptengine/scripting.h"
 #include "viewer.h"
 
+#ifdef WITH_PYTHON_QT
+#include "scriptengine/scripting.h"
 #include <PythonQt/gui/PythonQtScriptingConsole.h>
+#endif
 
 PythonInterpreterWidget::PythonInterpreterWidget(QWidget * parent) : DialogVisibilityNotify(PYTHON_TERMINAL_WIDGET, parent) {
     setWindowIcon(QIcon(":/resources/icons/python.png"));
@@ -49,9 +51,11 @@ void PythonInterpreterWidget::loadSettings() {
 }
 
 void PythonInterpreterWidget::startConsole() {
+#ifdef WITH_PYTHON_QT
 #if !defined(WIN32) || defined(NDEBUG)// PythonQt bug: QWidget: Must construct a QApplication before a QWidget
     auto * console = new PythonQtScriptingConsole(this, PythonQt::self()->getMainModule());
     state->scripting->addObject("knossos_global_interpreter_console", console);
     mainLayout.addWidget(console);
+#endif
 #endif
 }

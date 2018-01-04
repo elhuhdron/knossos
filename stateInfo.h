@@ -119,6 +119,25 @@ public:
     // pixel-to-nanometer scale
     floatCoordinate scale;
 
+    //rutuja -hdf5 name
+    bool hdf5_found = false;
+    bool raw_found = false;
+    bool seg_found = false;
+    bool warn_once = false;
+    bool seg_lvl_changed = false;
+    std::string hdf5 = "";
+    std::string raw_static_label;
+    std::string segmentation_static_label;
+    int segmentation_level=0;
+    int mode = 0;
+    int direction = 0;
+
+    QString baseUrl;
+
+    //rutuja
+    Coordinate superChunkSize= {8,8,4};
+    Coordinate cube_offset;
+
     // With 2^N being the edge length of a datacube in pixels and
     // M being the edge length of a supercube (the set of all
     // simultaneously loaded datacubes) in datacubes:
@@ -144,8 +163,10 @@ public:
     struct ViewerState * viewerState;
     class MainWindow * mainWindow{nullptr};
     class Viewer * viewer;
+#ifdef WITH_PYTHON_QT
     class Scripting * scripting;
     class SignalRelay * signalRelay;
+#endif
     struct SkeletonState * skeletonState;
 };
 

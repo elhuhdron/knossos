@@ -21,15 +21,14 @@
  */
 
 #include "segmentation.h"
-
+#include <iostream>
 #include "file_io.h"
 #include "loader.h"
 #include "session.h"
 #include "skeleton/skeletonizer.h"
 #include "viewer.h"
-
+#include <algorithm>
 #include <QTextStream>
-
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -164,15 +163,29 @@ Segmentation::Object & Segmentation::createObject(Args &&... args) {
 }
 
 void Segmentation::removeObject(Object & object) {
+
     unselectObject(object);
     for (auto & elem : object.subobjects) {
         auto & subobject = elem.get();
+
+        if(flag_delete) {
+            deleted_cell_id = subobject.id;
+            if(state->mode == 1){ // if we delete a single object it should delete the mesh in 3D window
+                cell_delete();
+            }
+        }
         subobject.objects.erase(std::remove(std::begin(subobject.objects), std::end(subobject.objects), object.index), std::end(subobject.objects));
+
         if (subobject.objects.empty()) {
             subobjects.erase(subobject.id);
         }
     }
+    if(flag_delete) {
+        emit deleteobject();  // deletes all the merged subobjects within this object
+    }
+
     //swap with last, so no intermediate rows need to be deleted
+    //std::cout << "in remove object object size" << objects.size() << std::endl;
     if (objects.size() > 1 && object.index != objects.back().index) {
         //replace object index in subobjects
         for (auto & elem : objects.back().subobjects) {
@@ -181,6 +194,7 @@ void Segmentation::removeObject(Object & object) {
         }
         //replace object index in selected objects
         selectedObjectIndices.replace(objects.back().index, object.index);
+        activeIndices.replace(objects.back().index, object.index);  // watkinspv - not a fan of this swapping method
         std::swap(objects.back().index, object.index);
         std::swap(objects.back(), object);
         std::swap(objectIdToIndex[objects.back().id], objectIdToIndex[object.id]);
@@ -369,6 +383,7 @@ std::vector<std::reference_wrapper<Segmentation::Object>> Segmentation::touchedO
             vec.emplace_back(objects[index]);
         }
     }
+
     return vec;
 }
 
@@ -394,16 +409,21 @@ void Segmentation::clearObjectSelection() {
     emit resetSelection();
 }
 
+// watkinspv - previously rutuja had added modifying activeIndices to select and unselect.
+//   also added object.active while creating new selectActive and unselectActive
 void Segmentation::selectObject(Object & object) {
     if (object.selected) {
         return;
     }
-    object.selected = true;
+    object.selected = true; object.active = true;
     for (auto & subobj : object.subobjects) {
         ++subobj.get().selectedObjectsCount;
+        ++subobj.get().activeObjectsCount;
     }
     selectedObjectIndices.emplace_back(object.index);
+    activeIndices.emplace_back(object.index);
     emit changedRowSelection(object.index);
+    //std::cout << "selected " << object.id << " " << activeIndices.size() << std::endl;
 }
 
 void Segmentation::unselectObject(const uint64_t & objectIndex) {
@@ -416,12 +436,15 @@ void Segmentation::unselectObject(Object & object) {
     if (!object.selected) {
         return;
     }
-    object.selected = false;
+    object.selected = false; object.active = false;
     for (auto & subobj : object.subobjects) {
         --subobj.get().selectedObjectsCount;
+        --subobj.get().activeObjectsCount;
     }
     selectedObjectIndices.erase(object.index);
+    activeIndices.erase(object.index);
     emit changedRowSelection(object.index);
+    //std::cout << "unselected " << object.id << " " << activeIndices.size() << std::endl;
 }
 
 void Segmentation::jumpToObject(Object & object) {
@@ -533,7 +556,8 @@ void Segmentation::selectObject(const uint64_t & objectIndex) {
 }
 
 std::size_t Segmentation::selectedObjectsCount() const {
-    return selectedObjectIndices.size();
+    // watkinspv
+    return (activeIndices.size() > 0 ? activeIndices.size() : selectedObjectIndices.size());
 }
 
 void Segmentation::mergelistSave(QIODevice & file) const {
@@ -541,10 +565,14 @@ void Segmentation::mergelistSave(QIODevice & file) const {
     for (const auto & obj : objects) {
         stream << obj.id << ' ' << obj.todo << ' ' << obj.immutable;
         for (const auto & subObj : obj.subobjects) {
-            stream << ' ' << subObj.get().id;
+            stream << ' ' << (subObj.get().id & Dataset::SC_ID_MSK);
+            stream << ' ' << superChunkids.at(subObj.get().id).x << ' ' << superChunkids.at(subObj.get().id).y << ' ' << superChunkids.at(subObj.get().id).z;//rutuja
+            stream << ' ' << seg_level_list.at(subObj.get().id);//rutuja
+
         }
         stream << '\n';
         stream << obj.location.x << ' ' << obj.location.y << ' ' << obj.location.z << ' ';
+
         if (obj.color) {
             stream << std::get<0>(obj.color.get()) << ' ' << std::get<1>(obj.color.get()) << ' ' << std::get<2>(obj.color.get()) << '\n';
         } else {
@@ -559,6 +587,9 @@ void Segmentation::mergelistSave(QIODevice & file) const {
 }
 
 void Segmentation::mergelistLoad(QIODevice & file) {
+    QElapsedTimer bench;
+    bench.start();
+
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         throw std::runtime_error("mergelistLoad open failed");
     }
@@ -577,6 +608,9 @@ void Segmentation::mergelistLoad(QIODevice & file) {
         uint64_t initialVolume;
         QString category;
         QString comment;
+        std::tuple<uint8_t, uint8_t, uint8_t, uint8_t> color;
+        Coordinate cube_pos;
+        int seg_lvl;
 
         bool valid0 = (lineStream >> objId) && (lineStream >> todo) && (lineStream >> immutable) && (lineStream >> initialVolume);
         bool valid1 = (coordColorLineStream >> location.x) && (coordColorLineStream >> location.y) && (coordColorLineStream >> location.z);
@@ -585,17 +619,78 @@ void Segmentation::mergelistLoad(QIODevice & file) {
         bool valid3 = !(comment = stream.readLine()).isNull();
 
         if (valid0 && valid1 && valid2 && valid3) {
-            auto & obj = createObjectFromSubobjectId(initialVolume, location, objId, todo, immutable);
             uint64_t subObjId;
+            supervoxel info;
+            //get superchunkid
+            lineStream >> cube_pos.x;
+            lineStream >> cube_pos.y;
+            lineStream >> cube_pos.z;
+            lineStream >> seg_lvl;
+
+            // watkinspv - modify id to have superchunk prefix
+            CoordOfCube cubeCoord;
+            // convert to superchunk coordinates
+            cubeCoord.x = (cube_pos.x - state->cube_offset.x) / state->superChunkSize.x;
+            cubeCoord.y = (cube_pos.y - state->cube_offset.y) / state->superChunkSize.y;
+            cubeCoord.z = (cube_pos.z - state->cube_offset.z) / state->superChunkSize.z;
+            initialVolume = (state->mode == 1 ? Dataset::create_prefix(cubeCoord, seg_lvl) : 0) |
+                    (initialVolume & Dataset::SC_ID_MSK);
+
+            auto & obj = createObjectFromSubobjectId(initialVolume, location, objId, todo, immutable);
+            //state->viewer->setSuperChunkCoordinate(state->viewer->superChunkId);
+
+            superChunkids.insert(std::make_pair(initialVolume, cube_pos));
+            seg_level_list.insert(std::make_pair(initialVolume, seg_lvl));
+            //rutuja- get the initial subobjectid
+            info.seed = initialVolume;
+            info.objid = obj.id;
+            color = colorObjectFromSubobjectId(initialVolume);
+            info.color = color;
+            info.show = true;
+            state->viewer->supervoxel_info.push_back(info);
+            //std::cout << info.seed << std::endl;
+
             while (lineStream >> subObjId) {
+                //get superchunkid
+                lineStream >> cube_pos.x;
+                lineStream >> cube_pos.y;
+                lineStream >> cube_pos.z;
+                lineStream >> seg_lvl;
+
+                // watkinspv - modify id to have superchunk prefix
+                CoordOfCube cubeCoord;
+                // convert to superchunk coordinates
+                cubeCoord.x = (cube_pos.x - state->cube_offset.x) / state->superChunkSize.x;
+                cubeCoord.y = (cube_pos.y - state->cube_offset.y) / state->superChunkSize.y;
+                cubeCoord.z = (cube_pos.z - state->cube_offset.z) / state->superChunkSize.z;
+                subObjId = (state->mode == 1 ? Dataset::create_prefix(cubeCoord, seg_lvl) : 0) |
+                        (subObjId & Dataset::SC_ID_MSK);
+
                 newSubObject(obj, subObjId);
+                superChunkids.insert(std::make_pair(subObjId, cube_pos));
+                seg_level_list.insert(std::make_pair(subObjId, seg_lvl));
+                //rutuja - get the rest of the subobjectids
+                info.seed = subObjId;
+                info.objid = obj.id;
+                color = colorObjectFromSubobjectId(subObjId);
+                info.color = color;
+                info.show = true;
+                state->viewer->supervoxel_info.push_back(info);
+                //std::cout << info.seed << std::endl;
+
             }
+            selectObject(obj);
             std::sort(std::begin(obj.subobjects), std::end(obj.subobjects));
             changeCategory(obj, category);
             if (customColorValid) {
                 changeColor(obj, std::make_tuple(r, g, b));
             }
             obj.comment = comment;
+            // watkinspv - change for activeindices maybe should be rethought.
+            //   active in mode 1 basically means selected in the list view.
+            //   selected should be populated with everything that has been clicked (as before).
+            unselectActive(obj); // watkinspv - default is for nothing active
+
         } else {
             blockSignals(blockState);
             Segmentation::clear();
@@ -604,6 +699,28 @@ void Segmentation::mergelistLoad(QIODevice & file) {
     }
     blockSignals(blockState);
     emit resetData();
+
+    qDebug() << "loading mergelist: "<< bench.nsecsElapsed() / 1e9 << "s";
+}
+
+void Segmentation::loadMeshes()
+{
+    QElapsedTimer bench;
+    bench.start();
+
+    const auto blockState = this->signalsBlocked();
+    blockSignals(true);
+
+    //rutuja - load the meshes from the annotation
+    for (auto& x: state->viewer->supervoxel_info){
+        //std::cout << x.seed << std::endl;
+        state->viewer->hdf5_read(x);
+    }
+
+    blockSignals(blockState);
+    //emit resetData();
+
+    qDebug() << "loading meshes: "<< bench.nsecsElapsed() / 1e9 << "s";
 }
 
 void Segmentation::jobLoad(QIODevice & file) {
@@ -642,22 +759,42 @@ void Segmentation::startJobMode() {
 }
 
 void Segmentation::deleteSelectedObjects() {
+
+    QElapsedTimer bench;
+    bench.start();
+
     const auto blockState = blockSignals(true);
-    while (!selectedObjectIndices.empty()) {
-        removeObject(objects[selectedObjectIndices.back()]);
+
+    while (!activeIndices.empty()) { // changed from selectedObjectindices to activeIndices-rutuja
+        //std::cout << "in delete loop size" << activeIndices.size() << std::endl;
+        Object obj = objects[activeIndices.back()];
+        deleted_id = obj.id;
+        flag_delete = true;
+        removeObject(objects[activeIndices.back()]);
+        branch_delete();
+        flag_delete = false;
     }
+
     blockSignals(blockState);
     emit resetData();
+
+    qDebug() << "deleted objects and meshes: "<< bench.nsecsElapsed() / 1e9 << "s";
 }
 
 void Segmentation::mergeSelectedObjects() {
-    while (selectedObjectIndices.size() > 1) {
-        auto & firstObj = objects[selectedObjectIndices.front()];//front is the merge origin
-        auto & secondObj = objects[selectedObjectIndices.back()];
+
+    //while (selectedObjectIndices.size() > 1) {
+      while (activeIndices.size() > 1){
+        //auto & firstObj = objects[selectedObjectIndices.front()];//front is the merge origin
+        //auto & secondObj = objects[selectedObjectIndices.back()];
+          auto & firstObj = objects[activeIndices.front()];// changed selectedObjectIndices to activeIndices - rutuja
+          auto & secondObj = objects[activeIndices.back()];// rutuja
+
         //objects are no longer selected when they got merged
         auto flat_deselect = [this](Object & object){
             object.selected = false;
             selectedObjectIndices.erase(object.index);
+            activeIndices.erase(object.index);
             emit changedRowSelection(object.index);//deselect
         };
         //4 (im)mutability possibilities
@@ -671,6 +808,7 @@ void Segmentation::mergeSelectedObjects() {
 
             flat_deselect(objects[firstIndex]);//firstObj got invalidated
             selectedObjectIndices.emplace_front(newIndex);//move new index to front, so it gets the new merge origin
+            activeIndices.emplace_front(newIndex);
             emit changedRowSelection(firstIndex);
             emit changedRowSelection(secondIndex);
         } else if (secondObj.immutable) {
@@ -691,6 +829,7 @@ void Segmentation::mergeSelectedObjects() {
             secondObj.todo = false;
             emit changedRow(firstObj.index);
             removeObject(secondObj);
+
         }
     }
     emit todosLeftChanged();
@@ -709,7 +848,9 @@ void Segmentation::unmergeSelectedObjects(const Coordinate & clickPos) {
 }
 
 void Segmentation::jumpToSelectedObject() {
-    if (!selectedObjectIndices.empty()) {
+    if(!activeIndices.empty()) {
+        jumpToObject(objects[activeIndices.front()]);
+    } else if (!selectedObjectIndices.empty()) {
         jumpToObject(objects[selectedObjectIndices.front()]);
     }
 }
@@ -734,3 +875,236 @@ void Segmentation::restoreDefaultColorForSelectedObjects() {
         emit resetData();
     }
 }
+
+//rutuja -- count the number of current active objects
+std::size_t Segmentation::activeObjectsCount() const {
+    return activeIndices.size();
+}
+
+//rutuja-completely remove an object
+void Segmentation::remObject(uint64_t subobjectid, Segmentation::Object & sub)
+{
+    std::vector<std::reference_wrapper<SubObject>>tmp;
+    for (auto & elem : sub.subobjects) {
+        auto & subobject = elem.get();
+        if(subobject.id == subobjectid){
+          //unselectObject(sub);
+          decltype(sub.subobjects)j;
+          deleted_cell_id = subobjectid;
+          //flag_delete_cell = true;
+          tmp.push_back(subobject);
+          std::set_difference(std::begin(sub.subobjects), std::end(sub.subobjects), std::begin(tmp), std::end(tmp), std::back_inserter(j));
+          subobject.objects.erase(std::remove(std::begin(subobject.objects), std::end(subobject.objects), sub.index), std::end(subobject.objects));
+          subobjects.erase(subobject.id);
+          std::swap(sub.subobjects,j);
+          emit changedRow(sub.index);
+          break;
+
+        }
+
+    }
+
+}
+
+// rutuja - clear only the subobjects in the active selection
+void Segmentation::clearActiveSelection(){
+    const auto blockState = blockSignals(true);
+    while (!activeIndices.empty()) {
+        unselectActive(activeIndices.back());
+    }
+    blockSignals(blockState);
+    emit resetSelection();
+
+    // watkinspv - old code
+    //while(!activeIndices.empty())
+    //{
+    //  activeIndices.clear();
+    //}
+}
+
+//rutuja - delete a single subobject from an object in the 3d mesh
+void Segmentation::cell_delete(){
+   auto & segment = Segmentation::singleton();
+   auto & skeleton = Skeletonizer::singleton();
+   //segment.flag_delete_cell = false;
+   std::vector<supervoxel>::iterator i = state->viewer->supervoxel_info.begin();
+
+   while(i != state->viewer->supervoxel_info.end()){
+       if(i->seed == segment.deleted_cell_id){
+          state->viewer->supervoxel_info.erase(i);
+          break;
+        }
+        i++;
+    }
+    //std::cout << "delete" << std::endl;
+    // watkinspv - delete the whole tree, not just the mesh
+    skeleton.deleteMeshOfTree(segment.deleted_cell_id);
+    skeleton.delTree(segment.deleted_cell_id);
+
+}
+
+//rutuja- selectively turn on/off branches of meshes in 3D window
+void Segmentation::branch_onoff(Segmentation::Object & obj) {
+   auto & skeleton = Skeletonizer::singleton();
+   int size = state->viewer->supervoxel_info.size();
+
+   std::vector<supervoxel>::iterator it = state->viewer->supervoxel_info.begin();
+   int k = 0;
+   while(k < size ){
+        if(it->objid == obj.id){
+
+           it->show = obj.on_off;
+           if(it->show)
+           {
+              state->viewer->hdf5_read(*it);
+           }else {
+              skeleton.deleteMeshOfTree(it->seed);
+           }
+
+        }
+
+       it++;
+       k++;
+    }
+}
+
+//rutuja- Delete an entire tree from the 3D mesh
+void Segmentation::branch_delete(){
+
+   auto & segment = Segmentation::singleton();
+   segment.flag_delete = false;
+   std::vector<supervoxel>::iterator i = state->viewer->supervoxel_info.begin();
+   while(i != state->viewer->supervoxel_info.end()){
+        if(i->objid == segment.deleted_id){
+           i = state->viewer->supervoxel_info.erase(i);
+        }else{
+           i++;
+        }
+   }
+
+}
+
+//rutuja - get active id color
+ std::tuple<uint8_t, uint8_t, uint8_t, uint8_t> Segmentation::get_active_color(){
+   return activeid_color;
+}
+
+void Segmentation::set_active_color(){
+   activeid_color = {0, 0 ,255 , alpha};
+}
+
+/* watkinspv - reloading all supervoxels meshes is too slow
+//rutuja - function to dynamicaaly switch colors between current
+//active and non active supervoxels
+void Segmentation::change_colors(uint64_t objid){
+
+    int k = state->viewer->supervoxel_info.size();
+    std::tuple<uint8_t,uint8_t,uint8_t,uint8_t> color;
+    if(k > 1){
+       std::vector<supervoxel>::iterator i = state->viewer->supervoxel_info.begin();
+       while(i != state->viewer->supervoxel_info.end())
+       {
+         if(i->objid != objid)
+         {
+           color = colorObjectFromSubobjectId(i->seed);
+           i->color = color;
+           state->viewer->hdf5_read(*i);
+           i++;
+         }
+         else
+         {
+           i->color = get_active_color();
+           state->viewer->hdf5_read(*i);
+           i++;
+         }
+       }
+    }
+
+}
+*/
+
+void Segmentation::change_colors(uint64_t last_objid, uint64_t next_objid) {
+    //std::cout << "change_colors " << last_objid << " " << next_objid << std::endl;
+    if( next_objid == last_objid ) return; // nothing needs to be done
+
+    //QElapsedTimer bench;
+    //bench.start();
+
+    const auto blockState = this->signalsBlocked();
+    blockSignals(true);
+
+    int k = state->viewer->supervoxel_info.size();
+    std::tuple<uint8_t,uint8_t,uint8_t,uint8_t> color;
+    if(k > 1) {
+       std::vector<supervoxel>::iterator i = state->viewer->supervoxel_info.begin();
+       while(i != state->viewer->supervoxel_info.end()) {
+         if(i->objid == last_objid) {
+            color = colorObjectFromSubobjectId(i->seed);
+            i->color = color;
+            Skeletonizer::singleton().deleteMeshOfTree(i->seed);
+            state->viewer->hdf5_read(*i);
+         } else if(i->objid == next_objid) {
+            i->color = get_active_color();
+            Skeletonizer::singleton().deleteMeshOfTree(i->seed);
+            state->viewer->hdf5_read(*i);
+         }
+         i++;
+       }
+    }
+
+    blockSignals(blockState);
+
+    //qDebug() << "reload meshes for active color change: "<< bench.nsecsElapsed() / 1e9 << "s";
+}
+
+void Segmentation::setCurrentmergeid(uint64_t subobjid){
+   currentmergeid = subobjid;
+}
+
+uint64_t Segmentation::getCurrentmergeid(){
+   return currentmergeid;
+}
+
+//rutuja - function to delete the seg level from the segmentation tab
+void Segmentation::delete_seg_lvl(uint64_t id){
+   seg_level_list.erase(id);
+   superChunkids.erase(id);
+   emit deleteid();
+}
+
+// watkinspv - added separate select for active objects
+void Segmentation::selectActive(const uint64_t & objectIndex) {
+    if (objectIndex < objects.size()) {
+        selectActive(objects[objectIndex]);
+    }
+}
+void Segmentation::selectActive(Object & object) {
+    if (object.active) {
+        return;
+    }
+    object.active = true;
+    for (auto & subobj : object.subobjects) {
+        ++subobj.get().activeObjectsCount;
+    }
+    activeIndices.emplace_back(object.index);
+    //std::cout << "activated " << object.id << " " << activeIndices.size() << std::endl;
+}
+
+// watkinspv - added separate unselect for active objects
+void Segmentation::unselectActive(const uint64_t & objectIndex) {
+    if (objectIndex < objects.size()) {
+        unselectActive(objects[objectIndex]);
+    }
+}
+void Segmentation::unselectActive(Object & object) {
+    if (!object.active) {
+        return;
+    }
+    object.active = false;
+    for (auto & subobj : object.subobjects) {
+        --subobj.get().activeObjectsCount;
+    }
+    activeIndices.erase(object.index);
+    //std::cout << "unactivated " << object.id << " " << activeIndices.size() << std::endl;
+}
+

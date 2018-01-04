@@ -66,7 +66,9 @@ auto deltaBlockSelection = [](const auto & model, const auto & data, const auto 
     return selectedItems;
 };
 auto blockSelection = [](const auto & model, const auto & data){
-    return deltaBlockSelection(model, data, [](int){return false;});
+    // watkinspv - selecting everything by default??? who does that?
+    //return deltaBlockSelection(model, data, [](int){return false;});
+    return deltaBlockSelection(model, data, [](int){return true;});
 };
 
 auto threeWaySorting = [](auto & table, auto & sortIndex){// emulate ability for the user to disable sorting

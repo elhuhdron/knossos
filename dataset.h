@@ -47,9 +47,17 @@ struct Dataset {
     static QUrl apiSwitch(const API api, const QUrl & baseUrl, const Coordinate globalCoord, const int scale, const int cubeedgelength, const CubeType type);
     static bool isOverlay(const CubeType type);
 
+    //rutuja
+    bool fexists(const char *filename);
+
     API api;
     Coordinate boundary{0,0,0};
     floatCoordinate scale{0,0,0};
+
+    //rutuja
+    Coordinate superChunk{0,0,0};
+    Coordinate cube_offset;
+
     int magnification{0};
     int lowestAvailableMag{0};
     int highestAvailableMag{0};
@@ -59,6 +67,47 @@ struct Dataset {
     bool overlay{false};
     QString experimentname{};
     QUrl url;
+    //rutuja
+    //mesh file name
+    QString hdf5;
+    // static id to enable loading of multi-level segmented labels
+    QString seg_static_label;
+    //static id to enable loading of multiple raw datasets
+    QString rw_static_label;
+    //Mode of operation
+    int mode;
+
+    // watkinspv - make supervoxels in superchunks unique across entire dataset, only used in mode 1
+    static const uint16_t SC_BITS = 12;  // modify this to control bits encoding superchunk (3d)
+    static const uint16_t SCL_BITS = 3;  // modify this to control bits superchunk level
+    static const uint16_t SVOX_ID_BITS = 64 - SCL_BITS - 3*SC_BITS;    // remainder of bits used for superchunk id
+    static const uint16_t SCL_SHIFT = SVOX_ID_BITS + 3*SC_BITS;
+    // xxx - this does not link on osx, says SC_SHIFT is undefined
+    //static constexpr const uint16_t SC_SHIFT[3] = {SVOX_ID_BITS + 2*SC_BITS, SVOX_ID_BITS + SC_BITS, SVOX_ID_BITS};
+    static const uint16_t SC_SHIFT[3];
+    // https://stackoverflow.com/questions/12416639/how-to-create-mask-with-least-significat-bits-set-to-1-in-c
+    static const uint64_t SC_ID_MSK = ((uint64_t)1  << SVOX_ID_BITS)-1;
+    static const uint64_t SC_MSK = ((uint64_t)1  << SC_BITS)-1;
+    static const uint64_t SCL_MSK = ((uint64_t)1  << SCL_BITS)-1;
+    // riddle me this: python > perl <==> C > C++
+    static inline uint64_t create_prefix(CoordOfCube coord, int seglevel) {
+        return (((uint64_t) (coord.x & SC_MSK)) << SC_SHIFT[0]) |
+               (((uint64_t) (coord.y & SC_MSK)) << SC_SHIFT[1]) |
+               (((uint64_t) (coord.z & SC_MSK)) << SC_SHIFT[2]) |
+               (((uint64_t) (seglevel & SCL_MSK)) << SCL_SHIFT);
+    }
+    //static inline uint64_t create_prefix(Coordinate coord) {
+    //    return (((uint64_t) (coord.x & SC_MSK)) << SC_SHIFT[0]) |
+    //           (((uint64_t) (coord.y & SC_MSK)) << SC_SHIFT[1]) |
+    //           (((uint64_t) (coord.z & SC_MSK)) << SC_SHIFT[2]);
+    //}
+    static inline void retrieve_prefix(uint64_t prefixed_id, CoordOfCube &coord, int &seglevel) {
+        coord.x = (prefixed_id >> SC_SHIFT[0]) & SC_MSK;
+        coord.y = (prefixed_id >> SC_SHIFT[1]) & SC_MSK;
+        coord.z = (prefixed_id >> SC_SHIFT[2]) & SC_MSK;
+        seglevel = (prefixed_id >> SCL_SHIFT) & SCL_MSK;
+    }
+
 };
 
 #endif//DATASET_H

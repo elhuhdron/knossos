@@ -29,6 +29,8 @@
 #include "widgets/preferences/navigationtab.h"
 #include "widgets/mainwindow.h"
 #include "widgets/viewport.h"
+#include <H5Cpp.h>
+#include <hdf5.h>
 
 #include <QColor>
 #include <QCursor>
@@ -136,7 +138,7 @@ struct ViewerState {
     float FOVmin{0.5};
     float FOVmax{1};
     bool drawVPCrosshairs{true};
-    RotationCenter rotationCenter{RotationCenter::ActiveNode};
+    RotationCenter rotationCenter{RotationCenter::CurrentPosition};
     int showIntersections{false};
     bool showScalebar{false};
     bool enableArbVP{false};
@@ -151,6 +153,23 @@ struct ViewerState {
         std::vector<floatCoordinate> vertices;
         std::vector<std::array<float, 4>> colors;
     } lineVertBuffer, pointVertBuffer;
+};
+
+class supervoxel{
+public:
+    uint64_t seed;
+    uint64_t objid;
+    std::tuple<uint8_t,uint8_t,uint8_t,uint8_t> color;
+    bool show;
+
+};
+
+class SuperchunkH5Handles {
+public:
+    hid_t file_id;
+    hid_t group_id;
+    unsigned int count;
+    SuperchunkH5Handles(hid_t file_id, hid_t group_id) : file_id{file_id}, group_id{group_id}, count(1u) {}
 };
 
 /**
@@ -190,6 +209,7 @@ private:
     Remote remote;
 public:
     Viewer();
+    ~Viewer();
     void saveSettings();
     void loadSettings();
     Skeletonizer *skeletonizer;
@@ -199,6 +219,13 @@ public:
     std::list<TextureLayer> layers;
     int gpucubeedge = 64;
     bool gpuRendering = true;
+
+    //rutuja
+    std::vector<supervoxel> supervoxel_info;
+    Coordinate superChunkId = {0,0,0};
+    Coordinate super_start_coord;
+    bool current_cube;
+    std::unordered_map<std::string, SuperchunkH5Handles> h5handles;  // watkinspv - cache for h5 file handles
 
     ViewportOrtho *viewportXY, *viewportXZ, *viewportZY;
     ViewportArb *viewportArb;
@@ -213,6 +240,15 @@ public:
     void loadNodeLUT(const QString & path);
     void loadTreeLUT(const QString & path = ":/resources/color_palette/default.json");
     QColor getNodeColor(const nodeListElement & node) const;
+    //RUTUJA
+    int hdf5_read(supervoxel& x);
+    void setSuperChunk(Coordinate pos);
+    Coordinate getSuperChunk();
+    Coordinate calculateSuperChunk(Coordinate pos);
+    Coordinate getSuperChunkCoordinate();
+    void setSuperChunkCoordinate(Coordinate chunkId);
+    //int change_seglevels(int lvl);
+
 signals:
     void enabledArbVP(const bool on);
     void changedDefaultVPSizeAndPos();
@@ -253,6 +289,8 @@ public slots:
     float lowestScreenPxXPerDataPx(const bool ofCurrentMag = true);
     uint calcMag(const float screenPxXPerDataPx);
     void setMagnificationLock(const bool locked);
+
 };
 
 #endif // VIEWER_H
+

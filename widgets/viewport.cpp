@@ -21,12 +21,14 @@
  */
 
 #include "viewport.h"
-
+#include <iostream>
 #include "functions.h"
 #include "GuiConstants.h"
 #include "profiler.h"
 #include "mesh/mesh.h"
+#ifdef WITH_PYTHON_QT
 #include "scriptengine/scripting.h"
+#endif
 #include "segmentation/cubeloader.h"
 #include "segmentation/segmentation.h"
 #include "skeleton/skeletonizer.h"
@@ -710,6 +712,7 @@ void Viewport3D::paintGL() {
 }
 
 void ViewportOrtho::paintGL() {
+
     glClear(GL_DEPTH_BUFFER_BIT);
     if (state->gpuSlicer && state->viewer->gpuRendering) {
         renderViewportFast();
@@ -788,7 +791,9 @@ void ViewportBase::mousePressEvent(QMouseEvent *event) {
 }
 
 void ViewportBase::mouseReleaseEvent(QMouseEvent *event) {
+#ifdef WITH_PYTHON_QT
     EmitOnCtorDtor eocd(&SignalRelay::Signal_Viewort_mouseReleaseEvent, state->signalRelay, this, event);
+#endif
 
     Qt::KeyboardModifiers modifiers = event->modifiers();
     const auto ctrl = modifiers.testFlag(Qt::ControlModifier);

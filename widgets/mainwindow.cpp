@@ -29,11 +29,13 @@
 #include "version.h"
 #include "viewer.h"
 #include "viewport.h"
+#ifdef WITH_PYTHON_QT
 #include "scriptengine/scripting.h"
+#endif
 #include "skeleton/skeletonizer.h"
 #include "widgetcontainer.h"
 
-#include <PythonQt/PythonQt.h>
+//#include <PythonQt/PythonQt.h>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -76,6 +78,22 @@ public:
     }
     virtual void fixup(QString & input) const override {
         input = QString::number(0);//let viewer reset the value
+    }
+};
+
+class SegmentSpin : public QSpinBox {
+public:
+    SegmentSpin(const QString & prefix, /*int & val,*/ MainWindow & mainWindow) : QSpinBox(&mainWindow) {
+
+        setButtonSymbols(QAbstractSpinBox::NoButtons);
+        setPrefix(prefix);
+        setRange(0, 4);//allow min 0 as bogus value, we don’t adjust the max anyway
+        if(state->seg_lvl_changed){
+            setValue(state->segmentation_level);//inintialize for {0, 0, 0}
+            state->seg_lvl_changed = false;
+        }else{
+            setValue(0);
+        }
     }
 };
 
@@ -277,10 +295,12 @@ void MainWindow::createToolbars() {
     xField = new CoordinateSpin("x: ", *this);
     yField = new CoordinateSpin("y: ", *this);
     zField = new CoordinateSpin("z: ", *this);
+    seglvlField = new SegmentSpin("Current Segmentation Level: ", /*state->segmentation_level,*/ *this);
 
     basicToolbar.addWidget(xField);
     basicToolbar.addWidget(yField);
     basicToolbar.addWidget(zField);
+    basicToolbar.addWidget(seglvlField);
 
     defaultToolbar.setIconSize(QSize(24, 24));
 
@@ -591,6 +611,8 @@ void MainWindow::createMenus() {
     }, Qt::Key_S);
     addApplicationShortcut(*viewMenu, QIcon(), tr("Forward-traverse Tree"), &Skeletonizer::singleton(), []() { Skeletonizer::singleton().goToNode(NodeGenerator::Direction::Forward); }, Qt::Key_X);
     addApplicationShortcut(*viewMenu, QIcon(), tr("Backward-traverse Tree"), &Skeletonizer::singleton(), []() { Skeletonizer::singleton().goToNode(NodeGenerator::Direction::Backward); }, Qt::SHIFT + Qt::Key_X);
+    addApplicationShortcut(*viewMenu, QIcon(), tr("ForwardCheck-traverse Tree"), &Skeletonizer::singleton(), []() { Skeletonizer::singleton().goToNodeAndCheck(NodeGenerator::Direction::Forward); }, Qt::Key_E);
+    addApplicationShortcut(*viewMenu, QIcon(), tr("BackwardUnCheck-traverse Tree"), &Skeletonizer::singleton(), []() { Skeletonizer::singleton().goToNodeAndUnCheck(NodeGenerator::Direction::Backward); }, Qt::SHIFT + Qt::Key_E);
     addApplicationShortcut(*viewMenu, QIcon(), tr("Next Node in Table"), this, [this](){widgetContainer.annotationWidget.skeletonTab.jumpToNextNode(true);}, Qt::Key_N);
     addApplicationShortcut(*viewMenu, QIcon(), tr("Previous Node in Table"), this, [this](){widgetContainer.annotationWidget.skeletonTab.jumpToNextNode(false);}, Qt::Key_P);
     addApplicationShortcut(*viewMenu, QIcon(), tr("Next Tree in Table"), this, [this](){widgetContainer.annotationWidget.skeletonTab.jumpToNextTree(true);}, Qt::Key_Z);
@@ -651,6 +673,35 @@ void MainWindow::createMenus() {
     auto & helpMenu = *menuBar()->addMenu("&Help");
     addApplicationShortcut(helpMenu, QIcon(), tr("Documentation … "), this, []() { QDesktopServices::openUrl({MainWindow::docUrl}); }, Qt::Key_F1);
     helpMenu.addAction(QIcon(":/resources/icons/menubar/about.png"), "About", &widgetContainer.aboutDialog, &AboutDialog::show);
+
+    //rutuja - add segmentation level drop down menu on main window
+
+    //QSignalMapper* signalMapper = new QSignalMapper (this) ;
+    auto seg_levelMenu = menuBar()->addMenu("&Segmentation Levels");
+    QAction *zero = seg_levelMenu->addAction(tr("0"));
+    QAction *one = seg_levelMenu->addAction(tr("1"));
+    QAction *two = seg_levelMenu->addAction(tr("2"));
+    QAction *three = seg_levelMenu->addAction(tr("3"));
+    QAction *four = seg_levelMenu->addAction(tr("4"));
+    //QAction *crnt_seg_lvl = seg_levelMenu->addAction(tr("Current Segmentation Level"));
+
+    zero->setData("0");
+    one->setData("1");
+    two->setData("2");
+    three->setData("3");
+    four->setData("4");
+
+    connect(seg_levelMenu, SIGNAL(triggered(QAction *)),this, SLOT(choose_seg_lvl(QAction *)), Qt::UniqueConnection);
+    //connect(seg_levelMenu, SIGNAL(triggered(QAction *)), this, SLOT(seglvlField->setValue(state->segmentation_level)));
+    //QWidgetAction *widgetAction = new QWidgetAction(this);
+    QLineEdit* seg_level_txtbox = new QLineEdit;
+    seg_level_txtbox->setMaximumWidth(20);
+    //addApplicationShortcut(*seg_levelMenu,"Current Segmentation Level", this, SLOT(state->segmentation_level));
+    //seg_level_txtbox->setText(QString::fromStdString(std::to_string(state->segmentation_level)));
+    //QAction* txt_box = seg_levelMenu->addAction(seg_level_txtbox);
+    //widgetAction->setDefaultWidget(seg_level_txtbox);
+    //seg_levelMenu->addAction(widgetAction);
+
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -667,7 +718,9 @@ void MainWindow::closeEvent(QCloseEvent *event) {
              return;//we changed our mind – we dont want to quit anymore
          }
     }
+#ifdef WITH_PYTHON_QT
     EmitOnCtorDtor eocd(&SignalRelay::Signal_MainWindow_closeEvent, state->signalRelay, event);
+#endif
     state->quitSignal = true;
     QApplication::processEvents();//ensure everything’s done
     Loader::Controller::singleton().suspendLoader();
@@ -1339,7 +1392,9 @@ void MainWindow::pythonFileSlot() {
     state->viewerState->renderInterval = SLOW;
     QString pyFileName = QFileDialog::getOpenFileName(this, "Select python file", QDir::homePath(), "*.py");
     state->viewerState->renderInterval = FAST;
+#ifdef WITH_PYTHON_QT
     state->scripting->runFile(pyFileName);
+#endif
 }
 
 void MainWindow::refreshPluginMenu() {
@@ -1347,6 +1402,7 @@ void MainWindow::refreshPluginMenu() {
     for (auto action : actions) {
         pluginMenu->removeAction(action);
     }
+#ifdef WITH_PYTHON_QT
     QObject::connect(pluginMenu->addAction("Open Plugins Directory"),
                      &QAction::triggered,
                      [](){QDesktopServices::openUrl(QUrl::fromLocalFile(state->scripting->getPluginDir()));});
@@ -1377,14 +1433,17 @@ void MainWindow::refreshPluginMenu() {
         QObject::connect(pluginSubMenu->addAction("Remove import"), &QAction::triggered,
                          [pluginName](){state->scripting->removePluginImport(pluginName,false);});
     }
+#endif
 }
 
 void MainWindow::pythonInterpreterSlot() {
     widgetContainer.pythonInterpreterWidget.show();
     widgetContainer.pythonInterpreterWidget.activateWindow();
+
 }
 
 void MainWindow::pythonPluginMgrSlot() {
+#ifdef WITH_PYTHON_QT
     auto showError = [this](const QString &errorStr) {
         QMessageBox errorBox(QMessageBox::Warning, "Python Plugin Manager: Error", errorStr, QMessageBox::Ok, this);
         errorBox.exec();
@@ -1408,6 +1467,7 @@ void MainWindow::pythonPluginMgrSlot() {
         }
     }
     state->scripting->openPlugin(PLUGIN_MGR_NAME, false);
+#endif
 }
 
 void MainWindow::updateCompressionRatioDisplay() {
@@ -1423,4 +1483,13 @@ bool MainWindow::event(QEvent *event) {
         state->viewer->run();
     }
     return QMainWindow::event(event);
+}
+
+void MainWindow::choose_seg_lvl(QAction *channelAction){
+
+  state->seg_lvl_changed = true;
+  int lvl = channelAction->data().toInt();
+  state->mainWindow->widgetContainer.datasetLoadWidget.change_seglevels(lvl, xField, yField, zField);
+  seglvlField->setValue(lvl);
+
 }

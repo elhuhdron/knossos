@@ -21,7 +21,7 @@
  */
 
 #include "file_io.h"
-
+#include <iostream>
 #include "loader.h"
 #include "segmentation/segmentation.h"
 #include "skeleton/skeletonizer.h"
@@ -73,21 +73,30 @@ void annotationFileLoad(const QString & filename, const QString & treeCmtOnMulti
                 Loader::Controller::singleton().snappyCacheSupplySnappy(cubeCoord, match.captured("mag").toInt(), file.readAll().toStdString());
             }
         }
-        if (archive.setCurrentFile("mergelist.txt")) {
-            QuaZipFile file(&archive);
-            Segmentation::singleton().mergelistLoad(file);
-        }
+
         if (archive.setCurrentFile("microworker.txt")) {
             QuaZipFile file(&archive);
             Segmentation::singleton().jobLoad(file);
         }
+        if (archive.setCurrentFile("mergelist.txt")) {
+            QuaZipFile file(&archive);
+            Segmentation::singleton().mergelistLoad(file);
+        }
+
         //load skeleton after mergelist as it may depend on a loaded segmentation
         std::unordered_map<decltype(treeListElement::treeID), std::reference_wrapper<treeListElement>> treeMap;
         if (archive.setCurrentFile("annotation.xml")) {
             QuaZipFile file(&archive);
             treeMap = state->viewer->skeletonizer->loadXmlSkeleton(file, treeCmtOnMultiLoad);
         }
-        for (auto valid = archive.goToFirstFile(); valid; valid = archive.goToNextFile()) { // after annotation.xml, because loading .xml clears skeleton
+
+        if (archive.setCurrentFile("mergelist.txt")) {
+            // watkinspv - created a "load all" to avoid race conditions
+            Segmentation::singleton().loadMeshes();
+        }
+
+        //rutuja -original code commented by rutuja as we do not needto generate and depend on ply files
+        /*for (auto valid = archive.goToFirstFile(); valid; valid = archive.goToNextFile()) { // after annotation.xml, because loading .xml clears skeleton
             const QRegularExpression meshRegEx(R"regex([0-9]*.ply)regex");
             auto fileName = archive.getCurrentFileName();
             const auto matchMesh = meshRegEx.match(fileName);
@@ -97,22 +106,28 @@ void annotationFileLoad(const QString & filename, const QString & treeCmtOnMulti
                 nameWithoutExtension.chop(4);
                 bool validId = false;
                 auto treeId = boost::make_optional<std::uint64_t>(nameWithoutExtension.toULongLong(&validId));
+
                 if (!validId) {
                     qDebug() << "Filename not of the form <tree id>.ply, so loading as new tree:" << fileName;
                     treeId = boost::none;
+                    std::cout << "j" << std::endl;
                 } else if (state->skeletonState->mergeOnLoadFlag) {
                     const auto iter = treeMap.find(treeId.get());
                     if (iter != std::end(treeMap)) {
                         treeId = iter->second.get().treeID;
+                        std::cout << "k" << std::endl;
                     } else {
                         qDebug() << "Tree not found for this mesh, loading as new tree:" << fileName;
                         treeId = boost::none;
+                        std::cout << "l" << std::endl;
                     }
                 }
-                Skeletonizer::singleton().loadMesh(file, treeId, fileName);
+               // Skeletonizer::singleton().loadMesh(file, treeId, fileName);
+
             }
-        }
+        }*/
         state->viewer->loader_notify();
+
     } else {
         throw std::runtime_error(QObject::tr("opening %1 for reading failed").arg(filename).toStdString());
     }
@@ -151,7 +166,8 @@ void annotationFileSave(const QString & filename) {
                 throw std::runtime_error((filename + ": saving segmentation job failed").toStdString());
             }
         }
-        for (const auto & tree : state->skeletonState->trees) {
+        //rutuja -commented
+       /* for (const auto & tree : state->skeletonState->trees) {
             if (tree.mesh != nullptr) {
                 QuaZipFile file_write(&archive_write);
                 const auto filename = QString::number(tree.treeID) + ".ply";
@@ -161,7 +177,7 @@ void annotationFileSave(const QString & filename) {
                     throw std::runtime_error((filename + ": saving mesh failed").toStdString());
                 }
             }
-        }
+        }*/
         QTime cubeTime;
         cubeTime.start();
         const auto & cubes = Loader::Controller::singleton().getAllModifiedCubes();

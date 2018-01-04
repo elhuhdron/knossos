@@ -22,7 +22,9 @@
 
 #include "coordinate.h"
 #include "dataset.h"
+#ifdef WITH_PYTHON_QT
 #include "scriptengine/scripting.h"
+#endif
 #include "version.h"
 #include "viewer.h"
 #include "widgets/mainwindow.h"
@@ -123,11 +125,14 @@ int main(int argc, char *argv[]) {
     ::state = &state;
     Dataset::dummyDataset().applyToState();
 
+#ifdef WITH_PYTHON_QT
     SignalRelay signalRelay;
-    Viewer viewer;
     Scripting scripts;
+#endif
+    Viewer viewer;
     state.mainWindow->loadSettings();// load settings after viewer and window are accessible through state and viewer
     state.mainWindow->widgetContainer.datasetLoadWidget.loadDataset();// load last used dataset or show
+
     viewer.run();
 #ifdef NDEBUG
     splash.finish(state.mainWindow);

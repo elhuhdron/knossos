@@ -1,64 +1,124 @@
 language: cpp
-
-matrix:
-  include:
-    - os: linux
-      dist: trusty
-      sudo: required
-      compiler: gcc
-    #- os: linux
-    #  dist: trusty
-    #  sudo: required
-    #  compiler: clang
-    - os: osx
-      osx_image: xcode7.3      
-git:
-  submodules: false
+compiler: gcc
+os:
+  - linux
+  - osx
+dist: trusty
+sudo: required
 
 before_install:
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo add-apt-repository -y ppa:kojoley/boost; fi # boost 1.58
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "g++" ]; then sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test; fi # gcc6
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -; fi # add gpg.key for upcoming llvm repo
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then sudo apt-add-repository -y "deb http://llvm.org/apt/trusty/ llvm-toolchain-trusty-3.8 main"; fi # clang 3.8
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo add-apt-repository -y ppa:beineri/opt-qt571-trusty; fi # Qt 5.7.1
-  #- sudo add-apt-repository -y ppa:george-edison55/cmake-3.x
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get update -qq; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "g++" ]; then sudo apt-get -qq install gcc-6 g++-6; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get -qq install cmake freeglut3-dev libboost1.58-dev; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then sudo apt-get -qq install clang-3.8 libc++-dev; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get -qq install libsnappy-dev ninja-build libxmu-dev libxi-dev libjpeg-turbo8-dev libcurl4-openssl-dev; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo apt-get -qq install qt57base qt573d qtquick1-5-dev qtdeclarative5-dev qt57svg qt57tools qt57multimedia qtbase5-private-dev; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-3.8 100; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-3.8 100; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CC" == "gcc" ]; then sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 100; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "g++" ]; then sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-6 100; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CC" == "clang" ]; then sudo update-alternatives --config clang; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then sudo update-alternatives --config clang++; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CC" == "gcc" ]; then sudo update-alternatives --config gcc; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "g++" ]; then sudo update-alternatives --config g++; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then source /opt/qt57/bin/qt57-env.sh; fi
-  #OSX
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install qt5 snappy quazip ninja; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "clang++" ]; then export CXXFLAGS="-stdlib=libc++ -std=c++11 -fPIC"; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ] && [ "$CXX" == "g++" ]; then export CXXFLAGS="-std=c++11 -fPIC"; fi
-  
+  - '[ "$TRAVIS_OS_NAME" != linux ] || export QTVER=59'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo add-apt-repository -y ppa:beineri/opt-qt591-trusty'
+  ##- '[ "$TRAVIS_OS_NAME" != linux ] || sudo add-apt-repository --yes ppa:ubuntu-sdk-team/ppa'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get -qy update'
+
+install:
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get -qy install gcc-6 g++-6'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || export CC=/usr/bin/gcc-6'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || export CXX=/usr/bin/g++-6'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get install libhdf5-serial-dev hdf5-tools'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get install libboost-all-dev libsnappy-dev'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get install mesa-common-dev libglu1-mesa-dev libegl1-mesa-dev libegl1-mesa-drivers libgles2-mesa libgles2-mesa-dev'
+  ##- '[ "$TRAVIS_OS_NAME" != linux ] || sudo apt-get install qtbase5-dev qttools5-dev-tools'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || travis_wait sudo apt-get -qy install qt${QTVER}-meta-full'
+
+  # Error: Running Homebrew as root is extremely dangerous and no longer supported.
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew update; fi
+  ##- if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew tap homebrew/science; fi # moved back to core
+  ## attempted to rebuild boost with c++11 to fix mac PythonQt compile issues, this did not work, see below.
+  ##- if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew uninstall postgis cgal sfcgal boost; fi
+  ##- if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install boost --c++11 --verbose --without-single --without-static; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq cmake || brew install cmake; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq snappy || brew install snappy; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq python3 || brew install python3; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then if brew ls | grep -wq hdf5; then brew uninstall hdf5; fi fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install hdf5@1.8; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force hdf5@1.8 && sudo chmod -R +rw /usr/local/opt/hdf5@1.8; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq qt5 || brew install qt5; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force qt5 && sudo chmod -R +rw /usr/local/Cellar/qt/*; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo ln -s /usr/local/Cellar/qt/5.9.2/mkspecs /usr/local/mkspecs && sudo ln -s /usr/local/Cellar/qt/5.9.2/plugins /usr/local/plugins; fi
+
 before_script:
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then wget https://downloads.sourceforge.net/project/quazip/quazip/0.7.2/quazip-0.7.2.tar.gz; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then tar -xzf quazip-0.7.2.tar.gz; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then mkdir quazip-build && cd quazip-build; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then cmake -G Ninja -DCMAKE_BUILD_TYPE=RELEASE "../quazip-0.7.2"; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then sudo ninja install -j1; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then cd ..; fi
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then wget https://github.com/al3xst/PythonQt/releases/download/nightly/pythonqt.tar.gz; fi
-  #OSX
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then wget https://github.com/al3xst/PythonQt/releases/download/nightly-mac/pythonqt.tar.gz; fi
-  - tar -xvf pythonqt.tar.gz
-  - mkdir knossos_build && cd knossos_build
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then cmake -G Ninja -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_PREFIX_PATH="/home/travis/build/knossos-project/knossos/PythonQt-install/lib/cmake/" ..; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then cmake -G Ninja -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_PREFIX_PATH="/Users/travis/build/knossos-project/knossos/pythonqt/lib/cmake/;/usr/local/Cellar/qt5/5.7.1_1/lib/cmake/" ..; fi
-  
+  - '[ "$TRAVIS_OS_NAME" != linux ] || source /opt/qt${QTVER}/bin/qt${QTVER}-env.sh'
+
 script:
-  - ninja -j1
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then mv knossos.app KNOSSOS.app; fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then /usr/local/Cellar/qt5/5.7.1_1/bin/macdeployqt KNOSSOS.app; fi
+  ## build and install PythonQt
+  ## xxx - PythonQt builds on linux, gives pyports.h known error on mac.
+  ##   had trouble with pythonqt on both mac and windows so decided to disable.
+  ##   possibly solution could have been that python was being pulled in from system instead of brew install by cmake?
+  #- git clone https://github.com/knossos-project/PythonQt.git ~/builds/PythonQt
+  #- rm -rf ~/builds/PythonQt/build && mkdir -p ~/builds/PythonQt/build
+  #- pushd ~/builds/PythonQt/build
+  #- CXXFLAGS=-Wno-deprecated-declarations cmake ~/builds/PythonQt '-GCodeBlocks - Unix Makefiles' -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local
+  #- cmake --build . --target all
+  #- sudo cmake --build . --target install
+  #- popd
+
+  # build and install quazip
+  - git clone https://github.com/mnafees/quazip.git ~/builds/quazip
+  - rm -rf ~/builds/quazip/build && mkdir -p ~/builds/quazip/build
+  - pushd ~/builds/quazip/build
+  - cmake ~/builds/quazip '-GCodeBlocks - Unix Makefiles' -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local
+  - cmake --build . --target all
+  - sudo cmake --build . --target install
+  - popd
+
+  # build and install szip
+  # xxx - neither this nor the installed version from hdf5 dependency works with the static knossos build, gave up.
+  # for linux szip seems to have to be built. hdf5 builds with and without szip are extremely confusing.
+  # the supposed looking git clone of szip doesn't configure properly with cmake.
+  #- git clone https://github.com/erdc/szip.git ~/builds/szip
+  - pushd ~/builds
+  - wget https://support.hdfgroup.org/ftp/lib-external/szip/2.1.1/src/szip-2.1.1.tar.gz
+  - tar xvf szip-2.1.1.tar.gz
+  - popd
+  - rm -rf ~/builds/szip-2.1.1/build && mkdir -p ~/builds/szip-2.1.1/build
+  - pushd ~/builds/szip-2.1.1/build
+  - cmake ~/builds/szip-2.1.1 -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+  - cmake --build . --target all
+  - sudo cmake --build . --target install
+  - popd
+
+  # build knossos
+  - rm -rf $TRAVIS_BUILD_DIR/build && mkdir -p $TRAVIS_BUILD_DIR/build
+  - pushd $TRAVIS_BUILD_DIR/build
+  - CXXFLAGS=-Wno-deprecated-declarations cmake $TRAVIS_BUILD_DIR '-GCodeBlocks - Unix Makefiles' -DCMAKE_BUILD_TYPE:STRING=Release -DBUILD_SHARED_LIBS=ON -DWITH_PYTHON_QT=OFF
+  - cmake --build . --target all
+  - popd
+
+before_deploy:
+  - pushd $TRAVIS_BUILD_DIR/build
+  - '[ "$TRAVIS_OS_NAME" != linux ] || export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || $TRAVIS_BUILD_DIR/packager/dependency_cp.sh knossos knossos.$TRAVIS_OS_NAME "" "ld-linux|GL" /usr/local/lib 0'
+  - '[ "$TRAVIS_OS_NAME" != osx ] || $TRAVIS_BUILD_DIR/packager/dependency_cp.sh knossos.app/Contents/MacOS/knossos knossos.$TRAVIS_OS_NAME "/usr/local|rpath|^[^/]" "" /usr/local/lib 1'
+  # hook from CMakeLists.txt to export Gui plugins directory. since qt can not offer cross-platform tools, use a hammer.
+  # do not copy the debug libraries (ending with d).
+  - mkdir knossos.$TRAVIS_OS_NAME/plugins; DEPLOY_PLUGINS=`pwd`/knossos.$TRAVIS_OS_NAME/plugins
+  - pushd $(dirname $(dirname $(grep -E '^/.*platforms' platforms.txt | head -n 1)))
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then find . -regextype posix-extended -regex "^.*[^/]+[^d]\.(so|dylib|dll)$" -exec cp -p --parents {} $DEPLOY_PLUGINS \; ;popd; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then find -E . -regex "^.*[^/]+[^d]\.(so|dylib|dll)$" -exec rsync -Ra {} $DEPLOY_PLUGINS \; ;popd; fi
+  # move the platforms plugins to exe dir, qt hard-coded on all platforms.
+  - mv knossos.$TRAVIS_OS_NAME/plugins/platforms knossos.$TRAVIS_OS_NAME
+  # use dependency copy again to copy dependencies for platform plugins
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then for f in knossos.$TRAVIS_OS_NAME/platforms/*.*; do $TRAVIS_BUILD_DIR/packager/dependency_cp.sh $f knossos.$TRAVIS_OS_NAME/platforms/deps "" "ld-linux|GL" /usr/local/lib 0; done fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then for f in knossos.$TRAVIS_OS_NAME/platforms/*.*; do $TRAVIS_BUILD_DIR/packager/dependency_cp.sh $f knossos.$TRAVIS_OS_NAME/platforms/deps "/usr/local|rpath|^[^/]" "" /usr/local/lib 1; done fi
+  # move the modified platform dependencies back to the platform dir
+  - pushd knossos.$TRAVIS_OS_NAME/platforms && find . -maxdepth 1 -type f -exec mv deps/{} . \; && popd
+  # move the other platform dependencies to the package dir
+  - mv knossos.$TRAVIS_OS_NAME/platforms/deps/* knossos.$TRAVIS_OS_NAME && rmdir knossos.$TRAVIS_OS_NAME/platforms/deps
+  - '[ "$TRAVIS_OS_NAME" != linux ] || cp -p $TRAVIS_BUILD_DIR/packager/run_knossos.sh knossos.$TRAVIS_OS_NAME'
+  - tar czvf knossos.$TRAVIS_OS_NAME.tar.gz knossos.$TRAVIS_OS_NAME
+  - popd
+
+deploy:
+  provider: releases
+  api_key:
+    secure: twaTleVqMNsL/Z+7+NMINaRjiVFlfPMuUZyPUe80RviJmye3pf7XAacAXgDu1Nv5CRe7t2D132FW3s8Kr8PG/j1z0CaGNgrOKYdE8ZKEm2ubP6O7CqygUEx67D/Jg139jf362IaBUm5jeNISIZCsSLcGZFj/SS2O1j/5O8Yxl8ylc1WtqYDrvXbq4LXEd5MxgGU1nWTAj94re5RnnW5LzmNkBblhACUK6dGRKwjvALShCvNvcykJYKREVP4mXXkYoj31XPgauQZohnN/VTCg6fu09ZWZkuC6uaPU8WYyXDwsSlTkgrUQscrgXoR+HLFAbApPuAKVxzGseQ2DRMChorUZu3jPk2Sa9IwyJNtTpDpz+wWS9SLL3bCiP4EMveZwCy2rfyUMnbdO4SuCaxBBForgOHdxLzsPLoALQcN5RTwHdpjcgZ1PdUJehBzDyAXsdhiv2ExC3MgASBoxXjsIkmMfVoeIve0r0JMOeYMAOVvQ4z9W1NvmJq/bdOrvdQ2R9ZhaKctlfdsyhfGjitA9W8+BZ3vEa+uqcheEMf20B0YAcqEpPhSUrmakiKG/Ik6AVCt6tT1jNvMgrYF9JvRuBeP2tw6ff0TWxJG/YKVO6I3oHncD+rhmWYHVrP9SBPTTIvv+wKxOKq9GZ0LnIa6c1AjYAzEL0PbH4i98/uR8Y9A=
+  file: $TRAVIS_BUILD_DIR/build/knossos.$TRAVIS_OS_NAME.tar.gz
+  skip_cleanup: true
+  on:
+    repo: elhuhdron/knossos
+    branch: 3D_meshes
+    tags: true
+

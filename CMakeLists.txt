@@ -28,6 +28,13 @@ if(NOT CMAKE_BUILD_TYPE)#prevent accidental debug builds
 endif()
 message(STATUS "${CMAKE_BUILD_TYPE}")
 
+option(WITH_PYTHON_QT "Build with PythonQt" ON)
+if(WITH_PYTHON_QT)
+    message(STATUS "Building with PythonQt")
+else(WITH_PYTHON_QT)
+    message(STATUS "Building without PythonQt")
+endif(WITH_PYTHON_QT)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake/Modules")
 
 option(BUILD_SHARED_LIBS "disable to find static versions of all libraries" ON)
@@ -42,8 +49,13 @@ include(cotire OPTIONAL)#https://github.com/sakra/cotire/releases/latest
 file(GLOB sources *.cpp resources.qrc version.h.in)
 file(GLOB headers *.h)
 file(GLOB uis widgets/*.ui)
-file(GLOB_RECURSE sources2 ./mesh/*.cpp ./scriptengine/*.cpp ./segmentation/*.cpp ./slicer/*.cpp ./skeleton/*.cpp ./tinyply/*.cpp ./widgets/*.cpp)
-file(GLOB_RECURSE headers2 ./mesh/*.h ./scriptengine/*.h ./segmentation/*.h ./slicer/*.h ./skeleton/*.h ./tinyply/*.h ./widgets/*.h)
+if(WITH_PYTHON_QT)
+    file(GLOB_RECURSE sources2 ./mesh/*.cpp ./scriptengine/*.cpp ./segmentation/*.cpp ./slicer/*.cpp ./skeleton/*.cpp ./tinyply/*.cpp ./widgets/*.cpp)
+    file(GLOB_RECURSE headers2 ./mesh/*.h ./scriptengine/*.h ./segmentation/*.h ./slicer/*.h ./skeleton/*.h ./tinyply/*.h ./widgets/*.h)
+else(WITH_PYTHON_QT)
+    file(GLOB_RECURSE sources2 ./mesh/*.cpp ./segmentation/*.cpp ./slicer/*.cpp ./skeleton/*.cpp ./tinyply/*.cpp ./widgets/*.cpp)
+    file(GLOB_RECURSE headers2 ./mesh/*.h ./segmentation/*.h ./slicer/*.h ./skeleton/*.h ./tinyply/*.h ./widgets/*.h)
+endif(WITH_PYTHON_QT)
 
 set(SRC_LIST ${sources} ${sources2} ${headers} ${headers2} ${uis})
 
@@ -57,13 +69,29 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOSTATICPLUGINS ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-set(pythonqt Qt5Python27 CACHE STRING "PythonQt flavour to search for")
 find_package(Boost 1.50 REQUIRED)
 find_package(OpenGL REQUIRED)
-find_package(${pythonqt} REQUIRED)
+if(WITH_PYTHON_QT)
+    set(pythonqt Qt5Python27 CACHE STRING "PythonQt flavour to search for")
+    find_package(${pythonqt} REQUIRED)
+    find_package(Qt5 5.1 REQUIRED COMPONENTS Concurrent Core Gui Help Network Widgets)
+else(WITH_PYTHON_QT)
+    set(pythonqt "" CACHE STRING "PythonQt flavour to search for")
+    find_package(Qt5 5.1 REQUIRED COMPONENTS Concurrent Core Gui Help Network Widgets UiTools)
+endif(WITH_PYTHON_QT)
 find_package(Snappy REQUIRED)
-find_package(Qt5 5.1 REQUIRED COMPONENTS Concurrent Core Gui Help Network Widgets)
 find_package(QuaZip 0.6.2 REQUIRED)
+find_package(szip REQUIRED)
+find_package(HDF5 1.8 REQUIRED)
+
+# qt static build is a nightmare && qt plugin deployment is a nightmare => qt is over-rated
+file(WRITE "${CMAKE_BINARY_DIR}/platforms.txt" " ")
+foreach(plugin ${Qt5Gui_PLUGINS})
+    get_target_property(_loc ${plugin} LOCATION)
+    file(APPEND "${CMAKE_BINARY_DIR}/platforms.txt" "${_loc}\n")
+endforeach()
+#get_target_property(QtCore_location Qt5::Core LOCATION)
+#file(WRITE "${CMAKE_BINARY_DIR}/qtcore.txt" "${QtCore_location}\n")
 
 if(NOT AUTOGEN)
     qt_wrap_cpp(${PROJECT_NAME} SRC_LIST ${headers} ${headers2})
@@ -104,12 +132,20 @@ set_target_properties(${PROJECT_NAME}
     PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/resources/Info.plist)
 add_dependencies(${PROJECT_NAME} buildinfo)#main target needs buildinfo
 
-option(PythonQt_QtAll "Include the PythonQt QtAll extension which wraps all Qt libraries" ON)
-if(PythonQt_QtAll)
-    find_package(${pythonqt}_QtAll REQUIRED)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE "QtAll")
-    target_link_libraries(${PROJECT_NAME} ${pythonqt}_QtAll)
-endif()
+if(WITH_PYTHON_QT)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC WITH_PYTHON_QT)
+    option(PythonQt_QtAll "Include the PythonQt QtAll extension which wraps all Qt libraries" ON)
+    if(PythonQt_QtAll)
+        find_package(${pythonqt}_QtAll REQUIRED)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE "QtAll")
+        target_link_libraries(${PROJECT_NAME} ${pythonqt}_QtAll)
+    endif()
+else(WITH_PYTHON_QT)
+    target_link_libraries(${PROJECT_NAME}
+        Qt5::UiTools
+    )
+endif(WITH_PYTHON_QT)
+
 #on static build, need to make sure the root include of a dynamic Qt is not added i.e. /mingw64/include
 #or some headers files of the static Qt are resolved through the wrong Qt installation (i.e. QtCore/qglobal.h which defines QT_STATIC)
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -119,13 +155,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux" AND NOT DEPLOY)
-    message(STATUS "using gold linker")
+ message(STATUS "using gold linker")
     set(LINUXLINKER -fuse-ld=gold)
 endif()
 
 target_link_libraries(${PROJECT_NAME}
     ${Boost_LIBRARIES}
     ${OPENGL_LIBRARIES}
+    #${SZIP_LIBRARIES}
+    szip::szip
+    ${HDF5_LIBRARIES}
     #configs add includes and other settings automatically
     Qt5::Concurrent
     Qt5::Core
@@ -136,7 +175,7 @@ target_link_libraries(${PROJECT_NAME}
     ${pythonqt}
     QuaZip::QuaZip
     Snappy::Snappy
-    ${LINUXLINKER}
+    ${LINUXLINKER}    
     $<$<PLATFORM_ID:Windows>:-Wl,--dynamicbase># use ASLR, required by the »Windows security features test« for »Windows Desktop App Certification«
 )
 find_program(LSBRELEASE lsb_release)

@@ -21,7 +21,7 @@
  */
 
 #include "loader.h"
-
+#include <iostream>
 #include "functions.h"
 #include "network.h"
 #include "segmentation/segmentation.h"
@@ -232,8 +232,25 @@ void Loader::Worker::allocateOverlayCubes() {
         OcSetChunk.emplace_back(state->cubeBytes * OBJID_BYTES, 0);//zero init chunk of chars
         freeOcSlots.emplace_back(OcSetChunk.back().data());//append newest element
     }
-}
+   //rutuja - checking if hdf5 found
 
+    if(state->hdf5.empty()){
+        QMessageBox prompt;
+        prompt.setWindowFlags(Qt::WindowStaysOnTopHint);
+        prompt.setWindowTitle("Failure to Load Hdf5");
+        prompt.setText("Meshing option available but hdf5 misssing");
+        prompt.addButton("Ok", QMessageBox::YesRole);
+        prompt.addButton("Cancel", QMessageBox::NoRole);
+        prompt.exec();
+        state->hdf5_found = false;
+
+    }
+    else{
+        state->hdf5_found = true;
+    }
+
+
+}
 Loader::Worker::~Worker() {
     abortDownloadsFinishDecompression();
 
@@ -398,7 +415,7 @@ void Loader::Worker::abortDownloadsFinishDecompression(Func keep) {
     finishDecompression(ocDecompression, keep);
 }
 
-std::pair<bool, char*> decompressCube(char * currentSlot, QIODevice & reply, const Dataset::CubeType type, coord2bytep_map_t & cubeHash, const Coordinate globalCoord, const int magnification) {
+std::pair<bool, char*> decompressCube(char * currentSlot, QIODevice & reply, const Dataset::CubeType type, coord2bytep_map_t & cubeHash, const Coordinate globalCoord, const int magnification, const int segmentation_level) {
     QThread::currentThread()->setPriority(QThread::IdlePriority);
     bool success = false;
 
@@ -445,6 +462,24 @@ std::pair<bool, char*> decompressCube(char * currentSlot, QIODevice & reply, con
     }
 
     if (success) {
+        // watkinspv - if mode 1, make supervoxel ids unique over all dataset
+        if( state->mode == 1 && Dataset::isOverlay(type) ) {
+            //std::cout << Dataset::SC_SHIFT[0] << ' ' << Dataset::SVOX_ID_BITS << std::endl;
+            // current knossos cube coordinte
+            auto cubeCoord = globalCoord.cube(state->cubeEdgeLength, magnification);
+            // convert to superchunk coordinates
+            cubeCoord.x = (cubeCoord.x - state->cube_offset.x) / state->superChunkSize.x;
+            cubeCoord.y = (cubeCoord.y - state->cube_offset.y) / state->superChunkSize.y;
+            cubeCoord.z = (cubeCoord.z - state->cube_offset.z) / state->superChunkSize.z;
+            uint64_t prefix = Dataset::create_prefix(cubeCoord, segmentation_level);
+            const auto ptr0 = reinterpret_cast<uint64_t*>(currentSlot);
+            const uint64_t cubeSize = state->cubeEdgeLength*state->cubeEdgeLength*state->cubeEdgeLength;
+            for( uint64_t *ptr = ptr0; ptr < ptr0 + cubeSize; ptr++ ) {
+                if( *ptr > 0 )
+                    *ptr = (prefix | (*ptr & Dataset::SC_ID_MSK));
+            }
+        }
+
         state->protectCube2Pointer.lock();
         cubeHash[globalCoord.cube(state->cubeEdgeLength, magnification)] = currentSlot;
         state->protectCube2Pointer.unlock();
@@ -514,6 +549,7 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
     }
 
     auto startDownload = [this, center](const Coordinate globalCoord, const Dataset::CubeType type, decltype(dcDownload) & downloads, decltype(dcDecompression) & decompressions, decltype(freeDcSlots) & freeSlots, decltype(state->Dc2Pointer[0]) & cubeHash){
+
         if (Dataset::isOverlay(type)) {
             auto snappyIt = snappyCache[loaderMagnification].find(globalCoord.cube(state->cubeEdgeLength, state->magnification));
             if (snappyIt != std::end(snappyCache[loaderMagnification])) {
@@ -555,6 +591,8 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
         }
         QUrl dcUrl = Dataset::apiSwitch(api, baseUrl, globalCoord, loaderMagnification, state->cubeEdgeLength, type);
 
+        //rutuja
+        state->baseUrl = baseUrl.toString();
         state->protectCube2Pointer.lock();
         const bool cubeNotAlreadyLoaded = Coordinate2BytePtr_hash_get_or_fail(cubeHash, globalCoord.cube(state->cubeEdgeLength, state->magnification)) == nullptr;
         state->protectCube2Pointer.unlock();
@@ -585,7 +623,7 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
             downloads[globalCoord] = reply;
             broadcastProgress(true);
             QObject::connect(reply, &QNetworkReply::finished, [this, reply, type, globalCoord, center, &downloads, &decompressions, &freeSlots, &cubeHash](){
-                if (freeSlots.empty()) {
+                if(freeSlots.empty()) {
                     qCritical() << "no slots" << static_cast<int>(type) << cubeHash.size() << freeSlots.size();
                     downloads[globalCoord]->deleteLater();
                     downloads.erase(globalCoord);
@@ -596,7 +634,7 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
                 freeSlots.pop_front();
                 if (reply->error() == QNetworkReply::NoError) {
 
-                    auto future = QtConcurrent::run(&decompressionPool, std::bind(&decompressCube, currentSlot, std::ref(*reply), type, std::ref(cubeHash), globalCoord, state->magnification));
+                    auto future = QtConcurrent::run(&decompressionPool, std::bind(&decompressCube, currentSlot, std::ref(*reply), type, std::ref(cubeHash), globalCoord, state->magnification, state->segmentation_level));
 
                     auto * watcher = new QFutureWatcher<DecompressionResult>;
                     QObject::connect(watcher, &QFutureWatcher<DecompressionResult>::finished, [this, &cubeHash, &freeSlots, &downloads, &decompressions, globalCoord, watcher, type, currentSlot](){
@@ -644,7 +682,11 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
                 }
             });
         }
+
+
+
     };
+
 
     const auto workaroundProcessLocalImmediately = baseUrl.scheme() == "file" ? [](){QCoreApplication::processEvents();} : [](){};
     auto typeDcOverride = state->compressionRatio == 0 ? Dataset::CubeType::RAW_UNCOMPRESSED : typeDc;
@@ -657,4 +699,21 @@ void Loader::Worker::downloadAndLoadCubes(const unsigned int loadingNr, const Co
             workaroundProcessLocalImmediately();//https://bugreports.qt.io/browse/QTBUG-45925
         }
     }
+
+    //added to reload the segmentation cubes when a new segmentation level is selected
+    /*if(state->seg_lvl_changed){
+        Coordinate globalCoord;
+        for (auto && todo : Dcoi) {
+            globalCoord = todo.cube2Global(state->cubeEdgeLength, state->magnification);
+            allCubes.emplace_back(globalCoord);
+            visibleCubes.emplace_back(globalCoord);
+        }
+        for (auto globalCoord : allCubes) {
+
+            startDownload(globalCoord, typeOc, ocDownload, ocDecompression, freeOcSlots, state->Oc2Pointer[loaderMagnification]);
+        }
+    }*/
+
 }
+
+

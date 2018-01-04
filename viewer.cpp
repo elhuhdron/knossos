@@ -21,7 +21,10 @@
  */
 
 #include "viewer.h"
-
+#include <iostream>
+//#include <H5Cpp.h>
+//#include <hdf5.h>
+#include <regex>
 #include "file_io.h"
 #include "functions.h"
 #include "segmentation/segmentation.h"
@@ -66,6 +69,16 @@ Viewer::Viewer() {
     QObject::connect(this, &Viewer::movementAreaFactorChangedSignal, this, &Viewer::dc_reslice_notify_visible);
 
     keyRepeatTimer.start();
+}
+
+Viewer::~Viewer() {
+    auto cur = h5handles.begin();
+    while( cur != h5handles.end() ) {
+        H5Gclose(cur->second.group_id);
+        H5Fclose(cur->second.file_id);
+        cur++;
+    }
+    h5handles.clear();
 }
 
 void Viewer::saveSettings() {
@@ -126,6 +139,7 @@ void Viewer::loadSettings() {
         mainWindow.viewport(static_cast<ViewportType>(i.toInt()))->raise();
     }
     settings.endGroup();
+
 }
 
 void Viewer::setMovementAreaFactor(float alpha) {
@@ -183,6 +197,7 @@ void Viewer::setMagnificationLock(const bool locked) {
 
 void Viewer::dcSliceExtract(char *datacube, Coordinate cubePosInAbsPx, char *slice, ViewportOrtho & vp, bool useCustomLUT) {
     const auto & session = Session::singleton();
+
     const Coordinate areaMinCoord = {session.movementAreaMin.x,
                                      session.movementAreaMin.y,
                                      session.movementAreaMin.z};
@@ -293,6 +308,7 @@ void Viewer::dcSliceExtract(char *datacube, floatCoordinate *currentPxInDc_float
     }
 }
 
+
 /**
  * @brief Viewer::ocSliceExtract extracts subObject IDs from datacube
  *      and paints slice at the corresponding position with a color depending on the ID.
@@ -311,6 +327,8 @@ void Viewer::dcSliceExtract(char *datacube, floatCoordinate *currentPxInDc_float
  */
 void Viewer::ocSliceExtract(char *datacube, Coordinate cubePosInAbsPx, char *slice, ViewportOrtho & vp) {
     const auto & session = Session::singleton();
+
+
     const Coordinate areaMinCoord = {session.movementAreaMin.x,
                                      session.movementAreaMin.y,
                                      session.movementAreaMin.z};
@@ -361,19 +379,115 @@ void Viewer::ocSliceExtract(char *datacube, Coordinate cubePosInAbsPx, char *sli
             if(hide == false) {
                 uint64_t subobjectId = *reinterpret_cast<uint64_t*>(datacube);
 
-                auto color = (subobjectIdCache == subobjectId) ? colorCache : seg.colorObjectFromSubobjectId(subobjectId);
-                reinterpret_cast<uint8_t*>(slice)[0] = std::get<0>(color);
-                reinterpret_cast<uint8_t*>(slice)[1] = std::get<1>(color);
-                reinterpret_cast<uint8_t*>(slice)[2] = std::get<2>(color);
-                reinterpret_cast<uint8_t*>(slice)[3] = std::get<3>(color);
-
+                //Coordinate currentsuperchunkId = calculateSuperChunk(state->viewerState->currentPosition);
                 const bool selected = (subobjectIdCache == subobjectId) ? selectedCache : seg.isSubObjectIdSelected(subobjectId);
+                auto color = (subobjectIdCache == subobjectId) ? colorCache : seg.colorObjectFromSubobjectId(subobjectId);
+                /*if(currentsuperchunkId == superChunkId)
+                {
+                    current_cube = true;
+                }
+                else if(superChunkId.x == 0 && superChunkId.y == 0&& superChunkId.z ==0){
+                    setSuperChunk(state->viewerState->currentPosition);
+                    current_cube = true;
+
+                }else{
+                    Coordinate h;
+                    Coordinate j;
+                    h.x = state->viewerState->currentPosition.x + 128;
+                    h.y = state->viewerState->currentPosition.y + 128;
+                    h.z = state->viewerState->currentPosition.z + 128;
+                    j.x = state->viewerState->currentPosition.x - 128;
+                    j.y = state->viewerState->currentPosition.y - 128;
+                    j.z = state->viewerState->currentPosition.z - 128;
+                    Coordinate temp = calculateSuperChunk(h);
+                    Coordinate temp1 = calculateSuperChunk(j);
+                    if(temp == superChunkId || temp1 == superChunkId)
+                    {
+                        current_cube = true;
+                    }
+                    else{
+                        current_cube = false;
+                    }
+                    //setSuperChunk(state->viewerState->currentPosition);
+                    //current_cube = true;
+
+                }*/
+
+                if(state->mode == 1)
+                {
+                    //if(selected && state->segmentation_level == Segmentation::singleton().seg_level_list.at(subobjectId)){
+                    //const CoordOfCube upperLeftDc = Coordinate().cube(state->cubeEdgeLength, state->magnification);
+                    if( selected && state->segmentation_level == seg.seg_level_list.at(subobjectId) ){
+
+                        reinterpret_cast<uint8_t*>(slice)[0] = std::get<0>(color);
+                        reinterpret_cast<uint8_t*>(slice)[1] = std::get<1>(color);
+                        reinterpret_cast<uint8_t*>(slice)[2] = std::get<2>(color);
+                        reinterpret_cast<uint8_t*>(slice)[3] = std::get<3>(color);
+
+
+                        //rutuja - selective branch on-off
+
+
+                        std::unordered_map<uint64_t, Segmentation::SubObject>::iterator it = seg.subobjects.find(subobjectId);
+                        const auto & sub = it->second;
+                        uint64_t id = seg.largestObjectContainingSubobject(sub);
+                        //object of the selected current subobjectid
+                        const auto & obj = seg.objects.at(id);
+
+                        if(!obj.on_off){
+                            reinterpret_cast<uint8_t*>(slice)[0] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[1] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[2] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[3] = 0;
+                        }
+                        // check for current active object
+                        else if(seg.activeIndices.size() > 0 && obj.id == seg.objects.at(seg.activeIndices.back()).id)
+                        {
+                            reinterpret_cast<uint8_t*>(slice)[0] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[1] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[2] = 255;
+                            reinterpret_cast<uint8_t*>(slice)[3] = Segmentation::singleton().alpha;
+                            //seg.set_active_color();
+                            //if(seg.active_index_change){
+                            //    seg.active_index_change = false;
+                            //    seg.change_colors(objid);
+                            //}
+                        }
+
+                    }
+                    //rutuja - color the border red and the only show selected objects in color
+                    if(!selected){
+
+                        if(subobjectId == 0){
+
+                            reinterpret_cast<uint8_t*>(slice)[0] = 255;
+                            reinterpret_cast<uint8_t*>(slice)[1] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[2] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[3] = Segmentation::singleton().alpha_border;
+
+                        }else{
+                            reinterpret_cast<uint8_t*>(slice)[0] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[1] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[2] = 0;
+                            reinterpret_cast<uint8_t*>(slice)[3] = 0;
+                        }
+
+
+                    }
+                }else{
+
+                    reinterpret_cast<uint8_t*>(slice)[0] = std::get<0>(color);
+                    reinterpret_cast<uint8_t*>(slice)[1] = std::get<1>(color);
+                    reinterpret_cast<uint8_t*>(slice)[2] = std::get<2>(color);
+                    reinterpret_cast<uint8_t*>(slice)[3] = std::get<3>(color);
+
+                }
                 const bool isPastFirstRow = counter >= min;
                 const bool isBeforeLastRow = counter < max;
                 const bool isNotFirstColumn = counter % state->cubeEdgeLength != 0;
                 const bool isNotLastColumn = (counter + 1) % state->cubeEdgeLength != 0;
 
-                // highlight edges where needed
+               // highlight edges where needed
                 if(seg.hoverVersion) {
                     uint64_t objectId = seg.tryLargestObjectContainingSubobject(subobjectId);
                     if (selected && seg.mouseFocusedObjectId == objectId) {
@@ -398,12 +512,13 @@ void Viewer::ocSliceExtract(char *datacube, Coordinate cubePosInAbsPx, char *sli
                     if (subobjectId != left || subobjectId != right || subobjectId != top || subobjectId != bottom) {
                         reinterpret_cast<uint8_t*>(slice)[3] = std::min(255, reinterpret_cast<uint8_t*>(slice)[3]*4);
                     }
-                }
+               }
 
-                //fill cache
-                subobjectIdCache = subobjectId;
-                colorCache = color;
-                selectedCache = selected;
+               //fill cache
+               subobjectIdCache = subobjectId;
+               colorCache = color;
+               selectedCache = selected;
+
             }
             ++counter;
             datacube += voxelIncrement;
@@ -414,6 +529,7 @@ void Viewer::ocSliceExtract(char *datacube, Coordinate cubePosInAbsPx, char *sli
         datacube += sliceSubLineIncrement;
         slice -= textRevertToFirstLine;
     }
+
 }
 
 static int texIndex(uint x, uint y, uint colorMultiplicationFactor, viewportTexture *texture) {
@@ -453,6 +569,8 @@ bool Viewer::vpGenerateTexture(ViewportOrtho & vp) {
         qDebug("No such slice view: %d.", vp.viewportType);
         return false;
     }
+
+
 
     const CoordOfCube upperLeftDc = Coordinate(vp.texture.leftUpperPxInAbsPx).cube(state->cubeEdgeLength, state->magnification);
 
@@ -548,6 +666,7 @@ bool Viewer::vpGenerateTexture(ViewportOrtho & vp) {
             }
         }
     }
+
     glBindTexture(GL_TEXTURE_2D, 0);
     return true;
 }
@@ -1013,6 +1132,7 @@ void Viewer::userMove(const floatCoordinate & floatStep, UserMoveType userMoveTy
     const Coordinate step(moveCache);
     moveCache -= step;
     userMoveVoxels(step, userMoveType, viewportNormal);
+
 }
 
 void Viewer::userMoveRound(UserMoveType userMoveType, const Coordinate & viewportNormal) {
@@ -1131,12 +1251,14 @@ void Viewer::loader_notify() {
 void Viewer::defaultDatasetLUT() {
     state->viewerState->datasetColortableOn = false;
     datasetColorAdjustmentsChanged();
+
 }
 
 void Viewer::loadDatasetLUT(const QString & path) {
     state->viewerState->datasetColortable = loadLookupTable(path);
     state->viewerState->datasetColortableOn = true;
     datasetColorAdjustmentsChanged();
+
 }
 
 void Viewer::datasetColorAdjustmentsChanged() {
@@ -1246,6 +1368,9 @@ QColor Viewer::getNodeColor(const nodeListElement & node) const {
     else if (node.isBranchNode) { //branch nodes are always blue
         color = Qt::blue;
     }
+    else if(node.synapse_check && !node.isBranchNode){// rutuja - change the color of checked nodes to yellow
+        color = Qt::yellow;
+    }
     else if (CommentSetting::useCommentNodeColor && node.getComment().isEmpty() == false) {
         color = CommentSetting::getColor(node.getComment());
     }
@@ -1270,3 +1395,285 @@ QColor Viewer::getNodeColor(const nodeListElement & node) const {
 
     return color;
 }
+
+int Viewer::hdf5_read(supervoxel& x)
+{
+
+    auto & skeleton = Skeletonizer::singleton();
+    hid_t file_id = -1, dataspace_vertices, dataspace_faces,group_id,dataset_vertices, dataset_faces,
+            memspace_vertices, memspace_faces,attr_id, attr_scale, attr_scaleinfo;
+    herr_t status = -1;
+    hsize_t dims_vertices[2];
+    hsize_t dims_faces[2];
+
+    //calculate the path for the current superchunk mesh file
+
+    Coordinate superchunk = Segmentation::singleton().superChunkids.at(x.seed);
+    int seg_lvl = Segmentation::singleton().seg_level_list.at(x.seed);
+
+    std::string baseUrl = state->baseUrl.toLocal8Bit().constData();
+
+    //prefixing hacks for different os
+#ifdef Q_OS_WIN32
+        std::string prefix_share("file:");
+        std::string prefix_hd("///");
+        if(baseUrl.find(prefix_share) == 0){
+            baseUrl.erase(0,5);
+            if(baseUrl.find(prefix_hd)==0){
+               baseUrl.erase(0,3);
+            }
+        }
+#else
+        std::string prefix_share("file://");
+        if(baseUrl.find(prefix_share) == 0){
+            baseUrl.erase(0,7);
+
+        }
+#endif
+
+    std::string dcUrl = QString("/mag%1/x%2/y%3/z%4/")
+            .arg(state->magnification)
+            .arg(superchunk.x, 4, 10, QChar('0'))
+            .arg(superchunk.y, 4, 10, QChar('0'))
+            .arg(superchunk.z, 4, 10, QChar('0')).toLocal8Bit().constData();
+
+
+    std::string basePath = baseUrl + dcUrl;
+    // generate the apeend path for the current mesh file
+    QString postFix;
+    if(!state->segmentation_static_label.empty()){
+        postFix = QString(("%1_mag%2_x%3_y%4_z%5.%6.%7.%8%9"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                                  .arg(state->name.section(QString("_mag"), 0, 0))
+                                  .arg(state->magnification)
+                                  .arg(superchunk.x, 4, 10, QChar('0'))
+                                  .arg(superchunk.y, 4, 10, QChar('0'))
+                                  .arg(superchunk.z, 4, 10, QChar('0'))
+                                  .arg(QString::fromStdString(state->segmentation_static_label))
+                                  .arg(seg_lvl)
+                                  .arg(QString::fromStdString(state->hdf5))
+                                  .arg(".h5");
+    }else {
+        postFix = QString(("%1_mag%2_x%3_y%4_z%5.%6.%7.%8%9"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                .arg(state->name.section(QString("_mag"), 0, 0))
+                .arg(state->magnification)
+                .arg(superchunk.x, 4, 10, QChar('0'))
+                .arg(superchunk.y, 4, 10, QChar('0'))
+                .arg(superchunk.z, 4, 10, QChar('0'))
+                .arg(QString::fromStdString(state->hdf5))
+                .arg(".h5");
+
+    }
+    std::string appendPath = postFix.toLocal8Bit().constData();
+
+    //Open the HDF5 file and group
+    // watkinspv - having to open and close the hdf5 files all the time is slow, but without a caching mechanism
+    //   they MUST be closed here, or latency gets really bad with lots of open file handles floating around.
+    //   introduced simple caching mechanism.
+    // IMPORTANT: MUST have segmentation level in mesh hdf5 file name for this to work.
+    auto h5handle = h5handles.find(appendPath);
+    try{
+        if (h5handle == std::end(h5handles)) {
+            file_id = H5Fopen((basePath+appendPath).c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+        } else {
+            file_id = h5handle->second.file_id;
+        }
+        status = 0;
+    }
+    catch (const std::overflow_error& e) {
+        // this executes if f() throws std::overflow_error (same type rule)
+
+        std::cout << e.what();
+        //return 0;
+    } catch (const std::runtime_error& e) {
+        // this executes if f() throws std::underflow_error (base class rule)
+
+        std::cout << e.what();
+        //return 0;
+    } catch (const std::exception& e) {
+        // this executes if f() throws std::logic_error (base class rule)
+
+        std::cout << e.what();
+        //return 0;
+    } catch (...) {
+        // this executes if f() throws std::string or int or any other unrelated type
+
+        //return 0;
+    }
+
+    if( file_id > 0 ) {
+        if (h5handle == std::end(h5handles)) {
+            group_id = H5Gopen(file_id, std::to_string(seg_lvl).c_str(),H5P_DEFAULT);
+
+            if( group_id > 0 ) {
+                if( h5handles.size() >= 128 ) {
+                    // something loosely like an lru cache
+                    unsigned int count = -1;
+                    auto cur = h5handles.begin();
+                    while( cur != h5handles.end() ) {
+                        if( cur->second.count <= count ) {
+                            count = cur->second.count;
+                            h5handle = cur;
+                        }
+                        cur++;
+                    }
+                    H5Gclose(h5handle->second.group_id);
+                    H5Fclose(h5handle->second.file_id);
+                    //qDebug() << "h5handle cache full replacing " << (h5handle->first).c_str();
+                    h5handles.erase(h5handle);
+                }
+                //qDebug() << "h5handle caching " << appendPath.c_str();
+                h5handles.emplace(appendPath, SuperchunkH5Handles(file_id, group_id));
+            } else {
+                status = -1;
+            }
+        } else {
+            group_id = h5handle->second.group_id;
+        }
+
+        int number_of_zeros = 8;
+        int buf[3];
+        int number[1];
+        std::string label_0 = "00000000/faces";
+        auto treeID = x.seed;
+
+        QVector<float> verts;
+        QVector<unsigned int> indices;
+        QVector<float> normals;
+        QVector<std::uint8_t> colors;
+        // meshing structures
+
+        // watkinspv - what are we doing here at all if x.show is false?
+        if( x.show && status >= 0 ) {
+            std::ostringstream oss;
+            //oss << x.seed;
+            // watkinspv - mask back to id within supercube
+            oss << (x.seed & Dataset::SC_ID_MSK);
+
+            //Convert the seed to %08d pattern style
+            std::string ver_data = std::string(number_of_zeros - oss.str().length(), '0') + oss.str() + "/vertices";
+            std::string face_data = std::string(number_of_zeros - oss.str().length(), '0') + oss.str() + "/faces";
+            //std::cout << appendPath << " " << oss.str() << std::endl;
+
+            // Obtain the points and polys for the seed from the dataset
+            dataset_vertices = H5Dopen(group_id, ver_data.c_str(), H5P_DEFAULT);
+            dataset_faces = H5Dopen(group_id, face_data.c_str(),  H5P_DEFAULT);
+            attr_scale = H5Dopen(group_id, label_0.c_str(),H5P_DEFAULT);
+
+            // Obtain attribute of dataset
+            attr_id = H5Aopen(dataset_vertices,"bounds_beg",H5Dget_access_plist(dataset_vertices));
+            attr_scaleinfo = H5Aopen(attr_scale,"nlabels",H5Dget_access_plist(attr_scale));
+            status = H5Aread(attr_id,H5T_NATIVE_INT,buf);
+            status = H5Aread(attr_scaleinfo,H5T_NATIVE_INT,number);
+
+            H5Aclose(attr_id);
+            H5Aclose(attr_scaleinfo);
+
+            // Obtain the dimensions of the points and the polys
+            dataspace_vertices = H5Dget_space(dataset_vertices);
+            dataspace_faces = H5Dget_space(dataset_faces);
+
+            unsigned int rank_vertices = H5Sget_simple_extent_ndims(dataspace_vertices);
+            unsigned int rank_faces = H5Sget_simple_extent_ndims(dataspace_faces);
+            status = H5Sget_simple_extent_dims(dataspace_vertices, dims_vertices, NULL);
+
+            status = H5Sget_simple_extent_dims(dataspace_faces, dims_faces, NULL);
+            memspace_vertices = H5Screate_simple(rank_vertices,dims_vertices,NULL);
+            memspace_faces = H5Screate_simple(rank_faces,dims_faces,NULL);
+
+
+            // Allocate memory for the reading the points and the polygons
+            uint32_t *data_vertices = (uint32_t*)std::malloc(sizeof(uint32_t)*dims_vertices[1]*dims_vertices[0]);
+            uint32_t *data_faces = (uint32_t*)std::malloc(sizeof(uint32_t)*dims_faces[1]*dims_faces[0]);
+
+            //Read the points and the polygons of the vtkPolyData
+            status = H5Dread(dataset_vertices, H5T_NATIVE_INT, memspace_vertices, dataspace_vertices,
+                     H5P_DEFAULT, data_vertices);
+            status = H5Dread(dataset_faces, H5T_NATIVE_INT, memspace_faces, dataspace_faces,
+                     H5P_DEFAULT, data_faces);
+
+            H5Dclose(dataset_vertices);
+            H5Dclose(dataset_faces);
+            H5Dclose(attr_scale);
+
+            for(uint h = 0; h < dims_vertices[0];h++){
+               verts.push_back(data_vertices[h*dims_vertices[1]]+ buf[0]);
+               verts.push_back(data_vertices[h*dims_vertices[1]+1] + buf[1]);
+               verts.push_back(data_vertices[h*dims_vertices[1]+2] + buf[2]);
+
+            }
+
+            for(uint h = 0; h < dims_faces[0];h++){
+               indices.push_back(data_faces[h*dims_faces[1]]);
+               indices.push_back(data_faces[h*dims_faces[1]+1]);
+               indices.push_back(data_faces[h*dims_faces[1]+2]);
+               colors.push_back(std::get<0>(x.color));
+               colors.push_back(std::get<1>(x.color));
+               colors.push_back(std::get<2>(x.color));
+               colors.push_back(255);
+            }
+
+            skeleton.addMeshToTree(treeID,verts,normals,indices,colors,GL_TRIANGLES);
+            std::free(data_vertices);
+            std::free(data_faces);
+        } // if x.show
+
+        // watkinspv - moved to simple caching mechanism
+        //H5Gclose(group_id);
+        //H5Fclose(file_id);
+    } // if file_id > 0 && status >= 0
+
+    return (status >= 0);
+}
+
+void Viewer::setSuperChunk(Coordinate pos)
+{
+
+   Coordinate superchunk_multiple;
+   pos.x = pos.x/state->cubeEdgeLength;
+   pos.y = pos.y/state->cubeEdgeLength;
+   pos.z = pos.z/state->cubeEdgeLength;
+
+   superchunk_multiple.x = state->superChunkSize.x;
+   superchunk_multiple.y = state->superChunkSize.y;
+   superchunk_multiple.z = state->superChunkSize.z;
+   superChunkId.x = (pos.x - state->cube_offset.x) / superchunk_multiple.x;
+   superChunkId.y = (pos.y - state->cube_offset.y) / superchunk_multiple.y;
+   superChunkId.z = (pos.z - state->cube_offset.z) / superchunk_multiple.z;
+
+}
+
+Coordinate Viewer::getSuperChunk()
+{
+   return superChunkId;
+}
+
+//maybe we do not need this function
+Coordinate Viewer::calculateSuperChunk(Coordinate current_position)
+{
+
+    Coordinate superchunk_multiple;
+    Coordinate pos;
+    superchunk_multiple.x = state->superChunkSize.x*state->cubeEdgeLength;
+    superchunk_multiple.y = state->superChunkSize.y*state->cubeEdgeLength;
+    superchunk_multiple.z = state->superChunkSize.z*state->cubeEdgeLength;
+    pos.x = (current_position.x - (state->cube_offset.x*state->cubeEdgeLength)) / superchunk_multiple.x;
+    pos.y = (current_position.y - (state->cube_offset.y*state->cubeEdgeLength)) / superchunk_multiple.y;
+    pos.z = (current_position.z - (state->cube_offset.z*state->cubeEdgeLength)) / superchunk_multiple.z;
+    return pos;
+}
+
+Coordinate Viewer::getSuperChunkCoordinate()
+{
+    return super_start_coord;
+}
+
+void Viewer::setSuperChunkCoordinate(Coordinate chunkId)
+{
+    super_start_coord.x = chunkId.x*state->superChunkSize.x + state->cube_offset.x;
+    super_start_coord.y = chunkId.y*state->superChunkSize.y + state->cube_offset.y;
+    super_start_coord.z = chunkId.z*state->superChunkSize.z + state->cube_offset.z;
+
+}
+
+
+

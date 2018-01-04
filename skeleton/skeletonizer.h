@@ -42,6 +42,7 @@
 class nodeListElement;
 class segmentListElement;
 
+
 enum skelvpOrientation {
     SKELVP_XY_VIEW, SKELVP_XZ_VIEW, SKELVP_ZY_VIEW, SKELVP_R90, SKELVP_R180, SKELVP_RESET, SKELVP_CUSTOM
 };
@@ -199,6 +200,7 @@ public:
     void notifyChanged(treeListElement & tree);
     void notifyChanged(nodeListElement & node);
 
+
     SkeletonState skeletonState;
     Skeletonizer();
     static Skeletonizer & singleton() {
@@ -225,7 +227,7 @@ public:
     template<typename T>
     void setComment(T & elem, const QString & newContent);
 
-    boost::optional<nodeListElement &> addNode(boost::optional<decltype(nodeListElement::nodeID)> nodeID, const float radius, const decltype(treeListElement::treeID) treeID, const Coordinate & position, const ViewportType VPtype, const int inMag, boost::optional<uint64_t> time, const bool respectLocks, const QHash<QString, QVariant> & properties = {});
+    boost::optional<nodeListElement &> addNode(boost::optional<decltype(nodeListElement::nodeID)> nodeID, const float radius, const decltype(treeListElement::treeID) treeID, const Coordinate & position, const ViewportType VPtype, const int inMag, boost::optional<uint64_t> time, const bool respectLocks, const bool syn_chk, const QHash<QString, QVariant> & properties = {}); //rutuja added "syn_chk"
 
     void selectNodes(QSet<nodeListElement *> nodes);
     void toggleNodeSelection(const QSet<nodeListElement *> & nodes);
@@ -245,7 +247,7 @@ public:
     void addSynapseFromNodes(std::vector<nodeListElement *> & nodes);
     bool unlockPosition();
     bool lockPosition(Coordinate lockCoordinate);
-    bool editNode(std::uint64_t nodeID, nodeListElement *node, float newRadius, const Coordinate & newPos, int inMag);
+    bool editNode(std::uint64_t nodeID, nodeListElement *node, float newRadius, const Coordinate & newPos, int inMag, bool syn_chk);//rutuja - added "syn_chk"
     bool delNode(std::uint64_t nodeID, nodeListElement *nodeToDel);
     void setSubobject(nodeListElement & node, const quint64 subobjectId);
     void setSubobjectSelectAndMergeWithPrevious(nodeListElement & node, const quint64 subobjectId, nodeListElement * previousNode);
@@ -263,6 +265,8 @@ public:
     nodeListElement *popBranchNode();
     void pushBranchNode(nodeListElement & branchNode);
     void goToNode(const NodeGenerator::Direction direction);
+    void goToNodeAndCheck(const NodeGenerator::Direction direction);
+    void goToNodeAndUnCheck(const NodeGenerator::Direction direction);
     void moveSelectedNodesToTree(decltype(treeListElement::treeID) treeID);
     static treeListElement* findTreeByTreeID(decltype(treeListElement::treeID) treeID);
     static nodeListElement *findNodeByNodeID(std::uint64_t nodeID);
@@ -290,6 +294,8 @@ public:
     void saveMesh(QIODevice & file, const treeListElement & tree);
     void addMeshToTree(boost::optional<decltype(treeListElement::treeID)> treeID, QVector<float> & verts, QVector<float> & normals, QVector<unsigned int> & indices, QVector<std::uint8_t> & colors, int draw_mode = 0, bool swap_xy = false);
     void deleteMeshOfTree(std::uint64_t tree_id);
+
+
 signals:
     void guiModeLoaded();
     void branchPoppedSignal();
@@ -309,6 +315,10 @@ signals:
     void nodeSelectionChangedSignal();
     void treeSelectionChangedSignal();
     void resetData();
+    //rutuja - signal added for check
+    void checkSynapse();
 };
 
 #endif // SKELETONIZER_H
+
+

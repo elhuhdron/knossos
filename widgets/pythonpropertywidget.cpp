@@ -25,8 +25,8 @@
 #include "GuiConstants.h"
 #include "viewer.h"
 
-#include <Python.h>
-#include <PythonQt/PythonQt.h>
+//#include <Python.h>
+//#include <PythonQt/PythonQt.h>
 #include <QApplication>
 #include <QCheckBox>
 #include <QDebug>

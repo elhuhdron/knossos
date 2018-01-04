@@ -41,6 +41,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+class Mesh;
 
 class Segmentation : public QObject {
 Q_OBJECT
@@ -53,7 +54,8 @@ Q_OBJECT
     friend class CategoryModel;
     friend class SegmentationView;
     friend class SegmentationProxy;
-
+//making class public by rutuja
+public:
     class Object;
     class SubObject {
         friend void connectedComponent(const Coordinate & seed);
@@ -63,8 +65,12 @@ Q_OBJECT
         static uint64_t highestId;
         std::vector<uint64_t> objects;
         std::size_t selectedObjectsCount = 0;
+        //rutuja - i dont where this should go so putting it near selectedObjectsCount
+        //as this the functionality we want to emulate
+        std::size_t activeObjectsCount = 0;
     public:
         const uint64_t id;
+
         explicit SubObject(const uint64_t & id) : id(id) {
             highestId = std::max(id, highestId);
             objects.reserve(10);//improves merging performance by a factor of 3
@@ -106,6 +112,10 @@ Q_OBJECT
         QString comment;
         bool selected = false;
 
+        //rutuja//
+        bool on_off = true;
+        bool active = false;
+
         explicit Object(std::vector<std::reference_wrapper<SubObject>> initialVolumes, const Coordinate & location, const uint64_t id = ++highestId, const bool & todo = false, const bool & immutable = false);
         explicit Object(Object & first, Object & second);
         bool operator==(const Object & other) const;
@@ -144,7 +154,7 @@ Q_OBJECT
     void unmergeObject(Object & object, Object & other, const Coordinate & position);
 
     Object & objectFromSubobject(Segmentation::SubObject & subobject, const Coordinate & position);
-public:
+
     class Job {
     public:
         bool active = false;
@@ -165,6 +175,38 @@ public:
     static bool enabled;
     bool renderOnlySelectedObjs{false};
     uint8_t alpha;
+    //**rutuja**//
+    uint8_t alpha_border;
+    std::tuple<uint8_t, uint8_t, uint8_t, uint8_t> activeid_color = {0,0,255,255};//active color blue - rutuja
+    bool flag_delete = false;
+    //bool active_index_change = false;
+    uint64_t deleted_id = 0;
+    bool createandselect = false;
+     bool load_annotation = false;
+    //bool flag_delete_cell = false;
+    uint64_t deleted_cell_id =0;
+    hash_list<uint64_t> activeIndices;
+    uint64_t currentmergeid = 0;
+    std::unordered_map<uint64_t, Coordinate> superChunkids;
+    std::unordered_map<uint64_t, int> seg_level_list;
+
+    //rutuja
+    void branch_onoff(Segmentation::Object & obj);
+    void branch_delete();
+    void cell_delete();
+    void clearActiveSelection();
+    void remObject(uint64_t subobjectid, Segmentation::Object & sub);
+    std::size_t activeObjectsCount() const;
+    std::tuple<uint8_t, uint8_t, uint8_t, uint8_t> get_active_color();
+    void set_active_color();
+    //void change_colors(uint64_t objid);
+    void change_colors(uint64_t last_objid, uint64_t next_objid);
+    void setCurrentmergeid(uint64_t);
+    uint64_t getCurrentmergeid();
+    void delete_seg_lvl(uint64_t id);
+
+
+
     brush_subject brush;
     // for mode in which edges are online highlighted for objects when selected and being hovered over by mouse
     bool hoverVersion{false};
@@ -217,6 +259,11 @@ public:
     void unselectObject(const uint64_t & objectIndex);
     void unselectObject(Object & object);
     void clearObjectSelection();
+    // watkinspv - separate active select and unselect
+    void selectActive(Object & object);
+    void selectActive(const uint64_t & objectIndex);
+    void unselectActive(Object & object);
+    void unselectActive(const uint64_t & objectIndex);
 
     void jumpToObject(const uint64_t & objectIndex);
     void jumpToObject(Object & object);
@@ -229,6 +276,7 @@ public:
     //files
     void mergelistSave(QIODevice & file) const;
     void mergelistLoad(QIODevice & file);
+    void loadMeshes();  // watkinspv - moved here to avoid race conditions
     void loadOverlayLutFromFile(const QString & filename = ":/resources/color_palette/default.json");
 signals:
     void beforeAppendRow();
@@ -245,6 +293,12 @@ signals:
     void categoriesChanged();
     void todosLeftChanged();
     void hoveredSubObjectChanged(const uint64_t subobject_id, const std::vector<uint64_t> & overlapObjects);
+    void merge();
+    //void beforemerge();
+    void appendmerge();
+    void changeactive();
+    void deleteid();
+    void deleteobject();
 public slots:
     void clear();
     void deleteSelectedObjects();

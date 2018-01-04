@@ -26,7 +26,15 @@
 #include "segmentation/segmentation.h"
 #include "skeleton/skeletonizer.h"
 #include "stateInfo.h"
+#include <iostream>
+#include <fstream>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <string>
+//#include <windows.h>
+//#include "Shlwapi.h"
 
+#include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -36,6 +44,9 @@
 #include <QStringList>
 #include <QTextStream>
 #include <QUrlQuery>
+
+const uint16_t Dataset::SC_SHIFT[3] =
+    {Dataset::SVOX_ID_BITS + 2*Dataset::SC_BITS, Dataset::SVOX_ID_BITS + Dataset::SC_BITS, Dataset::SVOX_ID_BITS};
 
 Dataset Dataset::dummyDataset() {
     Dataset info;
@@ -182,7 +193,37 @@ Dataset Dataset::fromLegacyConf(const QUrl & configUrl, QString config) {
             //discarding ftpFileTimeout parameter
         } else if (token == "compression_ratio") {
             info.compressionRatio = tokenList.at(1).toInt();
-        } else {
+        } else if (token == "hdf5"){//rutuja
+                    token = tokenList.at(1);
+                    info.hdf5 = token.remove('\"');
+        }else if(token == "superChunk"){
+            token = tokenList.at(1);
+            if(token == "x") {
+                info.superChunk.x = tokenList.at(2).toFloat();
+            } else if(token == "y") {
+                info.superChunk.y = tokenList.at(2).toFloat();
+            } else if(token == "z") {
+                info.superChunk.z = tokenList.at(2).toFloat();
+            }
+        }else if(token == "cube_offset"){
+            token = tokenList.at(1);
+            if(token == "x") {
+                info.cube_offset.x = tokenList.at(2).toFloat();
+            } else if(token == "y") {
+                info.cube_offset.y = tokenList.at(2).toFloat();
+            } else if(token == "z") {
+                info.cube_offset.z = tokenList.at(2).toFloat();
+            }
+        }else if(token == "raw_static_label"){
+            token = tokenList.at(1);
+            info.rw_static_label = token.remove('\"');
+        }else if(token == "seg_static_label"){
+            token = tokenList.at(1);
+            info.seg_static_label = token.remove('\"');
+        }else if(token == "mode"){
+            info.mode = tokenList.at(1).toInt();
+
+        }else {
             qDebug() << "Skipping unknown parameter" << token;
         }
     }
@@ -194,6 +235,7 @@ Dataset Dataset::fromLegacyConf(const QUrl & configUrl, QString config) {
             configDir.cdUp();//support
         }
         info.url = QUrl::fromLocalFile(configDir.absolutePath());
+
     }
 
     //transform boundary and scale of higher mag only datasets
@@ -219,25 +261,77 @@ void Dataset::applyToState() const {
     state->scale = scale;
     state->name = experimentname;
     state->cubeEdgeLength = cubeEdgeLength;
+    state->superChunkSize = superChunk;
+    state->cube_offset = cube_offset;
+
+    //rutuja- convert Qstring to std::string for easy enabling of reading hdf5
+    std::string stdString = hdf5.toStdString();
+    state->hdf5 = stdString;
+
+    state->segmentation_static_label = seg_static_label.toStdString();
+    state->raw_static_label = rw_static_label.toStdString();
     state->compressionRatio = compressionRatio;
+    state->mode = mode;
     Segmentation::enabled = overlay;
 
     Skeletonizer::singleton().skeletonState.volBoundary = SkeletonState{}.volBoundary;
 }
 
 QUrl knossosCubeUrl(QUrl base, QString && experimentName, const Coordinate & coord, const int cubeEdgeLength, const int magnification, const Dataset::CubeType type) {
+
     const auto cubeCoord = coord.cube(cubeEdgeLength, magnification);
     auto pos = QString("/mag%1/x%2/y%3/z%4/")
             .arg(magnification)
             .arg(cubeCoord.x, 4, 10, QChar('0'))
             .arg(cubeCoord.y, 4, 10, QChar('0'))
             .arg(cubeCoord.z, 4, 10, QChar('0'));
-    auto filename = QString(("%1_mag%2_x%3_y%4_z%5%6"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
-            .arg(experimentName.section(QString("_mag"), 0, 0))
-            .arg(magnification)
-            .arg(cubeCoord.x, 4, 10, QChar('0'))
-            .arg(cubeCoord.y, 4, 10, QChar('0'))
-            .arg(cubeCoord.z, 4, 10, QChar('0'));
+
+    QString filename;
+    //rutuja - generate selective file names for the raw and segmentation labels
+    if(type == Dataset::CubeType::SEGMENTATION_SZ_ZIP){
+
+        if(!state->segmentation_static_label.empty()){
+            filename = QString(("%1_mag%2_x%3_y%4_z%5.%6.%7%8"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                       .arg(experimentName.section(QString("_mag"), 0, 0))
+                       .arg(magnification)
+                       .arg(cubeCoord.x, 4, 10, QChar('0'))
+                       .arg(cubeCoord.y, 4, 10, QChar('0'))
+                       .arg(cubeCoord.z, 4, 10, QChar('0'))
+                       .arg(QString::fromStdString(state->segmentation_static_label))
+                       .arg(state->segmentation_level);
+
+        }else{
+
+            filename = QString(("%1_mag%2_x%3_y%4_z%5%6"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                       .arg(experimentName.section(QString("_mag"), 0, 0))
+                       .arg(magnification)
+                       .arg(cubeCoord.x, 4, 10, QChar('0'))
+                       .arg(cubeCoord.y, 4, 10, QChar('0'))
+                       .arg(cubeCoord.z, 4, 10, QChar('0'));
+        }
+    }else{
+
+        if(!state->raw_static_label.empty()){
+
+            filename = QString(("%1_mag%2_x%3_y%4_z%5.%6%7"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                       .arg(experimentName.section(QString("_mag"), 0, 0))
+                       .arg(magnification)
+                       .arg(cubeCoord.x, 4, 10, QChar('0'))
+                       .arg(cubeCoord.y, 4, 10, QChar('0'))
+                       .arg(cubeCoord.z, 4, 10, QChar('0'))
+                       .arg(QString::fromStdString(state->raw_static_label));
+
+
+        }else{
+
+            filename = QString(("%1_mag%2_x%3_y%4_z%5%6"))//2012-03-07_AreaX14_mag1_x0000_y0000_z0000.j2k
+                       .arg(experimentName.section(QString("_mag"), 0, 0))
+                       .arg(magnification)
+                       .arg(cubeCoord.x, 4, 10, QChar('0'))
+                       .arg(cubeCoord.y, 4, 10, QChar('0'))
+                       .arg(cubeCoord.z, 4, 10, QChar('0'));
+        }
+    }
 
     if (type == Dataset::CubeType::RAW_UNCOMPRESSED) {
         filename = filename.arg(".raw");
@@ -253,7 +347,35 @@ QUrl knossosCubeUrl(QUrl base, QString && experimentName, const Coordinate & coo
         filename = filename.arg(".seg");
     }
 
-    base.setPath(base.path() + pos + filename);
+
+    //rutuja - added selective names for the raw data and labels
+    Dataset dataset_info;
+    if(type == Dataset::CubeType::SEGMENTATION_SZ_ZIP){
+
+       base.setPath(base.path() + pos + filename);
+       std::string name = base.toString().toStdString();
+
+       //replace the start of the network drive path with "\\" to be able to tell if file exists
+       if(name.find("file://") == 0){
+           name.replace(0,7,"\\\\");
+       }
+       if (dataset_info.fexists(name.c_str())){
+         state->seg_found = true;
+       }
+
+    } else{ //for raw data
+
+       base.setPath(base.path() + pos + filename);
+       std::string name = base.toString().toStdString();
+
+       //replace the start of the network drive path with "\\" to be able to tell if file exists
+       if(name.find("file://") == 0){
+           name.replace(0,7,"\\\\");
+       }
+       if (dataset_info.fexists(name.c_str())){
+         state->raw_found = true;
+       }
+    }
 
     return base;
 }
@@ -343,4 +465,16 @@ bool Dataset::isOverlay(const CubeType type) {
         return true;
     };
     throw std::runtime_error("unknown value for Dataset::CubeType");
+}
+
+//function to test if file exists
+bool Dataset::fexists(const char *filename)
+{
+
+    if (FILE *file = fopen(filename, "r")) {
+            fclose(file);
+            return true;
+        } else {
+            return false;
+        }
 }

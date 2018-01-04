@@ -21,10 +21,13 @@
  */
 
 #include "widgets/viewport.h"
-
+#include <iostream>
 #include "functions.h"
 #include "gui_wrapper.h"
+#include "coordinate.h"
+#ifdef WITH_PYTHON_QT
 #include "scriptengine/scripting.h"
+#endif
 #include "segmentation/cubeloader.h"
 #include "segmentation/segmentation.h"
 #include "segmentation/segmentationsplit.h"
@@ -44,16 +47,75 @@
 #include <unordered_set>
 
 void merging(const QMouseEvent *event, ViewportOrtho & vp) {
+    //std::cout << "merging " << std::endl;
     auto & seg = Segmentation::singleton();
     const auto brushCenter = getCoordinateFromOrthogonalClick(event->x(), event->y(), vp);
     const auto subobjectIds = readVoxels(brushCenter, seg.brush.value());
     for (const auto subobjectPair : subobjectIds) {
-        if (seg.selectedObjectsCount() == 1) {
+
+        if (event->modifiers().testFlag(Qt::ShiftModifier)) {
+            // mode for deleting subjobects (unmerge and delete subobject)
+            //std::cout << "delete subobject " << std::endl;
+            auto & segmentation = Segmentation::singleton();
+
+            //const auto clickPos = getCoordinateFromOrthogonalClick(event->x(), event->y(), *this);
+            //const auto subobjectId = readVoxel(clickPos);
+            const auto subobjectId = subobjectPair.first;
+            const auto clickPos = subobjectPair.second;
+
+            //rutuja - to delete a subobject from object
+            //if (subobjectId != 0 && event->modifiers().testFlag(Qt::ShiftModifier)) {// delete a subobject
+            // watkinspv - flag checked above already, do nothing if suboject is not part of any current object
+            if( subobjectId != 0 && segmentation.subobjectExists(subobjectId) ) {
+
+                auto & subobject = segmentation.subobjectFromId(subobjectId, clickPos);
+                auto objIndex = segmentation.largestObjectContainingSubobject(subobject);
+                if (segmentation.isSelected(objIndex)) {// unselect if selected
+                    //std::cout << "\tselected " << std::endl;
+
+                    auto & object = segmentation.objects.at(objIndex);
+                    // watkinspv - do not delete from non-active (meaning not selected in object list) objects
+                    if( object.active ) {
+                        segmentation.unselectObject(object);
+                        segmentation.remObject(subobjectId,object);
+                        segmentation.selectObject(object);
+
+                        if(state->hdf5_found && state->mode == 1){
+                            segmentation.cell_delete();
+                            segmentation.delete_seg_lvl(subobjectId);
+                        }
+
+                        // watkinspv - delete object if removing last subobject
+                        if( object.subobjects.size() == 0 ) {
+                            segmentation.removeObject(object);
+                        }
+                    }
+                // watkinspv - removed this in favor of doing nothing if object does not exist
+                //} else {
+                //    std::cout << "\tnot selected " << std::endl;
+                //    // watkinspv - if the object was not selected, remove the object that was created
+                //    segmentation.removeObject(segmentation.objects.back());
+                }
+            }
+        } else if (seg.activeObjectsCount() == 1) {//rutuja
+            //std::cout << "merge subobject " << std::endl;
+            // mode for merging subjobects (creates a new object and then merges subobject into current object)
             const auto soid = subobjectPair.first;
             const auto pos = subobjectPair.second;
             auto & subobject = seg.subobjectFromId(soid, pos);
             const auto objectToMergeId = seg.smallestImmutableObjectContainingSubobject(subobject);
+
+            //rutuja - get superchunkid
+            state->viewer->setSuperChunk(pos);
+            state->viewer->setSuperChunkCoordinate(state->viewer->superChunkId);
+            //std::cout << state->viewer->superChunkId.x << " " << state->viewer->superChunkId.y << " "
+            //           << state->viewer->superChunkId.z << std::endl;
+            //std::cout << state->viewer->super_start_coord.x << " " << state->viewer->super_start_coord.y << " "
+            //           << state->viewer->super_start_coord.z << std::endl;
+
+            // START OLD unmerge code
             // if clicked object is currently selected, an unmerge is requested
+            /*
             if (seg.isSelected(subobject)) {
                 if (event->modifiers().testFlag(Qt::ShiftModifier)) {
                     if (event->modifiers().testFlag(Qt::ControlModifier)) {
@@ -67,26 +129,57 @@ void merging(const QMouseEvent *event, ViewportOrtho & vp) {
                             seg.selectObject(objectToMergeId);
                         }
                         seg.unmergeSelectedObjects(pos);
+
                     }
                 }
             } else { // object is not selected, so user wants to merge
+            */
+            // END OLD unmerge code
+
+            // do a merge if object is not currently selected
+            if (!seg.isSelected(subobject)) {
                 if (!event->modifiers().testFlag(Qt::ShiftModifier)) {
                     if (event->modifiers().testFlag(Qt::ControlModifier)) {
                         seg.selectObjectFromSubObject(subobject, pos);
                     } else {
                         seg.selectObject(objectToMergeId);//select largest object
                     }
+                    if (seg.activeObjectsCount() >= 2) {//rutuja
+                        seg.mergeSelectedObjects();
+                    }
+                    //rutuja - mesh for merging task
+                    if(state->hdf5_found && state->mode == 1)
+                    {
+                            auto objIndex = seg.largestObjectContainingSubobject(subobject);
+                            std::tuple<uint8_t, uint8_t, uint8_t, uint8_t>color = seg.get_active_color();
+                            auto obj = seg.objects.at(objIndex);
+                            supervoxel info;
+                            info.seed = soid;
+                            info.objid = obj.id;
+                            info.color = color;
+                            info.show = true;
+                            seg.superChunkids.insert(std::make_pair(soid,state->viewer->super_start_coord));
+                            seg.seg_level_list.insert(std::make_pair(soid,state->segmentation_level));
+                            state->viewer->supervoxel_info.push_back(info);
+                            state->viewer->hdf5_read(info);
+                            //emit seg.beforemerge();
+                            seg.setCurrentmergeid(soid);
+                            emit seg.merge();
+                    }
+                    seg.touchObjects(soid);
+                } else {
+                    seg.removeObject(seg.objects.back());
                 }
-                if (seg.selectedObjectsCount() >= 2) {
-                    seg.mergeSelectedObjects();
-                }
+
             }
-            seg.touchObjects(soid);
+
         }
-    }
+
+    } // for subobject pairs
 }
 
 void segmentation_brush_work(const QMouseEvent *event, ViewportOrtho & vp) {
+    //std::cout << "brush work " << std::endl;
     const Coordinate coord = getCoordinateFromOrthogonalClick(event->x(), event->y(), vp);
     auto & seg = Segmentation::singleton();
 
@@ -109,7 +202,9 @@ void ViewportOrtho::handleMouseHover(const QMouseEvent *event) {
     emit cursorPositionChanged(coord, viewportType);
     auto subObjectId = readVoxel(coord);
     Segmentation::singleton().hoverSubObject(subObjectId);
+#ifdef WITH_PYTHON_QT
     EmitOnCtorDtor eocd(&SignalRelay::Signal_EventModel_handleMouseHover, state->signalRelay, coord, subObjectId, viewportType, event);
+#endif
     if(Segmentation::singleton().hoverVersion && Segmentation::enabled) {
         Segmentation::singleton().mouseFocusedObjectId = Segmentation::singleton().tryLargestObjectContainingSubobject(subObjectId);
     }
@@ -163,14 +258,14 @@ void ViewportOrtho::handleMouseButtonMiddle(const QMouseEvent *event) {
 }
 
 void ViewportOrtho::handleMouseButtonRight(const QMouseEvent *event) {
+    if (!mouseEventAtValidDatasetPosition(event)) { //don’t place nodes outside movement area
+        return;
+    }
+
     const auto & annotationMode = Session::singleton().annotationMode;
     if (annotationMode.testFlag(AnnotationMode::Brush)) {
         Segmentation::singleton().brush.setInverse(event->modifiers().testFlag(Qt::ShiftModifier));
         segmentation_brush_work(event, *this);
-        return;
-    }
-
-    if (!mouseEventAtValidDatasetPosition(event)) { //don’t place nodes outside movement area
         return;
     }
 
@@ -336,7 +431,7 @@ void ViewportOrtho::handleMouseMotionMiddleHold(const QMouseEvent *event) {
         Coordinate moveTrunc = arbNodeDragCache;//truncate
         arbNodeDragCache -= moveTrunc;//only keep remaining fraction
         const auto newPos = draggedNode->position - moveTrunc;
-        Skeletonizer::singleton().editNode(0, draggedNode, 0., newPos, state->magnification);
+        Skeletonizer::singleton().editNode(0, draggedNode, 0., newPos, state->magnification, 0);
     }
     ViewportBase::handleMouseMotionMiddleHold(event);
 }
@@ -379,27 +474,91 @@ void Viewport3D::handleMouseReleaseLeft(const QMouseEvent *event) {
 
 void ViewportOrtho::handleMouseReleaseLeft(const QMouseEvent *event) {
     auto & segmentation = Segmentation::singleton();
+
     if (Session::singleton().annotationMode.testFlag(AnnotationMode::ObjectSelection) && mouseEventAtValidDatasetPosition(event)) { // in task mode the object should not be switched
         if (event->pos() == mouseDown) {// mouse click
             const auto clickPos = getCoordinateFromOrthogonalClick(event->x(), event->y(), *this);
             const auto subobjectId = readVoxel(clickPos);
-            if (subobjectId != segmentation.getBackgroundId()) {// don’t select the unsegmented area as object
+
+
+            if (subobjectId != segmentation.getBackgroundId() && segmentation.createandselect) {// don’t select the unsegmented area as object
                 auto & subobject = segmentation.subobjectFromId(subobjectId, clickPos);
                 auto objIndex = segmentation.largestObjectContainingSubobject(subobject);
-                if (!event->modifiers().testFlag(Qt::ControlModifier)) {
-                    segmentation.clearObjectSelection();
-                    segmentation.selectObject(objIndex);
-                } else if (segmentation.isSelected(objIndex)) {// unselect if selected
+                segmentation.createandselect = false;
+                state->viewer->setSuperChunk(clickPos);
+                state->viewer->setSuperChunkCoordinate(state->viewer->superChunkId);
+                //std::cout << state->viewer->super_start_coord.x << std::endl;
+                //if (!event->modifiers().testFlag(Qt::ControlModifier)) { // watkinspv - what was this for?
+
+                // watkinspv - modified change_colors to only change current and previous selection
+                const auto lastActiveid = (segmentation.activeIndices.size() > 0 ?
+                                           segmentation.objects.at(segmentation.activeIndices.back()).id : 0);
+
+                segmentation.clearActiveSelection();//rutuja
+                segmentation.selectObject(objIndex);
+                auto object = segmentation.objects.at(objIndex);
+                std::tuple<uint8_t,uint8_t,uint8_t,uint8_t> color = segmentation.get_active_color();
+
+                if(state->hdf5_found && state->mode == 1){
+
+                    supervoxel info;
+                    info.seed = subobjectId;
+                    info.objid = object.id;
+                    info.color = color;
+                    info.show = true;
+                    state->viewer->supervoxel_info.push_back(info);
+                    segmentation.superChunkids.insert(std::make_pair(subobjectId,state->viewer->super_start_coord));
+                    segmentation.seg_level_list.insert(std::make_pair(subobjectId,state->segmentation_level));
+                    state->viewer->hdf5_read(info);
+
+                    // to color all the selected supervoxels by their respective colors once they are not the current active selection
+                    //segmentation.change_colors(object.id);
+                    // watkinspv - modified change_colors to only change current and previous selection
+                    segmentation.change_colors(lastActiveid, 0);
+
+                    // add subobjects to segmentation tab window - seg lvl and cube positions
+                    //emit segmentation.beforemerge();
+                    segmentation.setCurrentmergeid(subobjectId);
+                    emit segmentation.appendmerge();
+                }
+
+                //}
+                //rutuja - removed this from original code
+                /* } else if (segmentation.isSelected(objIndex)) {// unselect if selected
                     segmentation.unselectObject(objIndex);
                 } else { // select largest object
                     segmentation.selectObject(objIndex);
-                }
+                }*/
                 if (segmentation.isSelected(subobject)) {//touch other objects containing this subobject
                     segmentation.touchObjects(subobjectId);
                 } else {
                     segmentation.untouchObjects();
                 }
             }
+            /* watkinspv - moved this to work with shift-right click instead
+            //rutuja - to delete a subobject from object
+            if (subobjectId != 0 && event->modifiers().testFlag(Qt::ShiftModifier)) {// delete a subobject
+
+                auto & subobject = segmentation.subobjectFromId(subobjectId, clickPos);
+                auto objIndex = segmentation.largestObjectContainingSubobject(subobject);
+                if (segmentation.isSelected(objIndex)) {// unselect if selected
+
+                    auto & object = segmentation.objects.at(objIndex);
+                    segmentation.unselectObject(object);
+                    segmentation.remObject(subobjectId,object);
+                    segmentation.selectObject(object);
+
+                    if(state->hdf5_found && state->mode == 1){
+
+                        segmentation.cell_delete();
+                        segmentation.delete_seg_lvl(subobjectId);
+
+
+                    }
+                }
+
+            }
+            */
         }
     }
     state->viewer->userMoveClear();//finish dataset drag
@@ -414,12 +573,15 @@ void ViewportOrtho::handleMouseReleaseRight(const QMouseEvent *event) {
         }
     }
     ViewportBase::handleMouseReleaseRight(event);
+
 }
 
 void ViewportOrtho::handleMouseReleaseMiddle(const QMouseEvent *event) {
     if (mouseEventAtValidDatasetPosition(event)) {
         Coordinate clickedCoordinate = getCoordinateFromOrthogonalClick(event->x(), event->y(), *this);
+#ifdef WITH_PYTHON_QT
         EmitOnCtorDtor eocd(&SignalRelay::Signal_EventModel_handleMouseReleaseMiddle, state->signalRelay, clickedCoordinate, viewportType, event);
+#endif
         auto & seg = Segmentation::singleton();
         if (Session::singleton().annotationMode.testFlag(AnnotationMode::Mode_Paint) && seg.selectedObjectsCount() == 1) {
             auto brush_copy = seg.brush.value();
@@ -450,7 +612,7 @@ void ViewportBase::handleWheelEvent(const QWheelEvent *event) {
             && state->skeletonState->activeNode != nullptr)
     {//change node radius
         float radius = state->skeletonState->activeNode->radius + directionSign * 0.2 * state->skeletonState->activeNode->radius;
-        Skeletonizer::singleton().editNode(0, state->skeletonState->activeNode, radius, state->skeletonState->activeNode->position, state->magnification);;
+        Skeletonizer::singleton().editNode(0, state->skeletonState->activeNode, radius, state->skeletonState->activeNode->position, state->magnification, state->skeletonState->activeNode->synapse_check);;
     } else if (Session::singleton().annotationMode.testFlag(AnnotationMode::Brush) && event->modifiers() == Qt::SHIFT) {
         auto curRadius = seg.brush.getRadius();
         seg.brush.setRadius(std::max(curRadius + (int)((event->delta() / 120) *
@@ -542,7 +704,7 @@ void ViewportBase::handleKeyPress(const QKeyEvent *event) {
     } else if(event->key() == Qt::Key_Delete) {
         if(ctrl) {
             if(state->skeletonState->activeTree) {
-                Skeletonizer::singleton().delTree(state->skeletonState->activeTree->treeID);
+               // Skeletonizer::singleton().delTree(state->skeletonState->activeTree->treeID);
             }
         } else if(state->skeletonState->selectedNodes.size() > 0) {
             bool deleteNodes = true;
