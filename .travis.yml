@@ -7,8 +7,9 @@ dist: trusty
 sudo: required
 
 before_install:
-  - '[ "$TRAVIS_OS_NAME" != linux ] || which cmake'
-  - '[ "$TRAVIS_OS_NAME" != linux ] || cmake -version'
+  # cmake got moved to /usr/local and not linked
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo rm -rf /usr/bin/cmake'
+  - '[ "$TRAVIS_OS_NAME" != linux ] || sudo ln -s `which cmake`'
   - '[ "$TRAVIS_OS_NAME" != linux ] || export QTVER=59'
   - '[ "$TRAVIS_OS_NAME" != linux ] || sudo add-apt-repository -y ppa:beineri/opt-qt591-trusty'
   ##- '[ "$TRAVIS_OS_NAME" != linux ] || sudo add-apt-repository --yes ppa:ubuntu-sdk-team/ppa'
