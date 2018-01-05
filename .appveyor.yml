@@ -18,8 +18,8 @@ artifacts:
 
 deploy:
   #release: myproduct-v$(appveyor_build_version)
-  release: v5.0-3D_meshes
-  description: 'v5.0-3D_meshes'
+  release: v5.0-emdrp
+  description: 'v5.0-emdrp'
   provider: GitHub
   auth_token:
     secure: w74a0EqE8olcyKcn3NFusPQ39qvUIlwZdXKxoXHX46jCDKxQdoEkT0DKoO3sMD8H
@@ -27,6 +27,6 @@ deploy:
   draft: false
   prerelease: false
   on:
-    branch: 3D_meshes 
+    branch: emdrp
     appveyor_repo_tag: true        # deploy on tag push only
 

@@ -125,6 +125,6 @@ deploy:
   skip_cleanup: true
   on:
     repo: elhuhdron/knossos
-    branch: 3D_meshes
+    branch: emdrp
     tags: true
 

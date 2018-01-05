@@ -1,8 +1,8 @@
 
-git fetch origin; git reset --hard origin/3D_meshes
-git push --delete origin v5.0-3D_meshes
-git tag --delete v5.0-3D_meshes
+git fetch origin; git reset --hard origin/emdrp
+git push --delete origin v5.0-emdrp
+git tag --delete v5.0-emdrp
 
-git tag v5.0-3D_meshes
-git push -u origin 3D_meshes --tags
+git tag v5.0-emdrp
+git push -u origin emdrp --tags
 
