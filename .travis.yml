@@ -32,14 +32,16 @@ install:
   ## attempted to rebuild boost with c++11 to fix mac PythonQt compile issues, this did not work, see below.
   ##- if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew uninstall postgis cgal sfcgal boost; fi
   ##- if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install boost --c++11 --verbose --without-single --without-static; fi
+  # https://github.com/Homebrew/brew/issues/1742
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq gcc || brew install gcc || brew link --overwrite gcc; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq cmake || brew install cmake; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq snappy || brew install snappy; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq python3 || brew install python3; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then if brew ls | grep -wq hdf5; then brew uninstall hdf5; fi fi
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install --force hdf5@1.8; fi
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force hdf5@1.8 && sudo chmod -R +rw /usr/local/opt/hdf5@1.8; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install hdf5@1.8; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --overwrite --force hdf5@1.8 && sudo chmod -R +rw /usr/local/opt/hdf5@1.8; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq qt5 || brew install qt5; fi
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --force qt5 && sudo chmod -R +rw /usr/local/Cellar/qt/*; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --overwrite --force qt5 && sudo chmod -R +rw /usr/local/Cellar/qt/*; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo ln -s /usr/local/Cellar/qt/5.9.2/mkspecs /usr/local/mkspecs && sudo ln -s /usr/local/Cellar/qt/5.9.2/plugins /usr/local/plugins; fi
 
 before_script:
