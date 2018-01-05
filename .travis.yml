@@ -42,7 +42,8 @@ install:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --overwrite --force hdf5@1.8 && sudo chmod -R +rw /usr/local/opt/hdf5@1.8; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew ls | grep -wq qt5 || brew install qt5; fi
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew link --overwrite --force qt5 && sudo chmod -R +rw /usr/local/Cellar/qt/*; fi
-  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo ln -s /usr/local/Cellar/qt/5.9.2/mkspecs /usr/local/mkspecs && sudo ln -s /usr/local/Cellar/qt/5.9.2/plugins /usr/local/plugins; fi
+  # version needs updating whenever homebrew does. brew + travis == nightmare
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then sudo ln -s /usr/local/Cellar/qt/5.10.0_1/mkspecs /usr/local/mkspecs && sudo ln -s /usr/local/Cellar/qt/5.10.0_1/plugins /usr/local/plugins; fi
 
 before_script:
   - '[ "$TRAVIS_OS_NAME" != linux ] || source /opt/qt${QTVER}/bin/qt${QTVER}-env.sh'
