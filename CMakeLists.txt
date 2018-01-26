@@ -152,6 +152,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     #${Boost_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIR}
     ${PYTHON_INCLUDE_DIR}
+    ${HDF5_INCLUDE_DIR}
 )
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux" AND NOT DEPLOY)
